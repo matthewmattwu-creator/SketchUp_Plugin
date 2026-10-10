@@ -3,6 +3,7 @@ require 'sketchup.rb'
 require 'json'
 require_relative 'geometry'
 require_relative 'solid_check'
+require_relative 'boundary'
 module MattWu
   module BuildableEnvelope
     extend self
@@ -15,43 +16,34 @@ module MattWu
     end
 
     def parcel(points, name)
-      z = points.first[2]
-      raise ArgumentError, '仅支持水平红线，标高误差不得超过 1 毫米' if points.any? { |p| (p[2]-z).abs > 0.001 }
-      origin = points.first
-      poly = points.map { |p| [p[0]-origin[0],p[1]-origin[1]] }
-      Geometry.validate(poly)
-      { name: name, points: poly, origin: origin, height: 36.0, floor_height: 3.6,
-        setbacks: Array.new(poly.length,5.0), high_segment: poly.length > Geometry::SIMPLIFY_THRESHOLD }
+      boundary_parcel(Boundary.build(points).merge(holes: []),name)
     end
 
-    def edge_cycles(edges, transformation, name)
-      adjacency = Hash.new { |h,k| h[k] = [] }
-      edges.each { |e| e.vertices.each { |v| adjacency[v] << e } }
-      raise ArgumentError, '红线未闭合或存在分叉，请选完整闭合线' unless adjacency.values.all? { |list| list.length == 2 }
-      unseen = edges.dup
-      parcels = []
-      until unseen.empty?
-        edge = unseen.first
-        start = edge.start
-        current = start
-        points = []
-        loop do
-          points << world_point(current.position, transformation)
-          unseen.delete(edge)
-          current = edge.other_vertex(current)
-          break if current == start
-          edge = adjacency[current].find { |candidate| unseen.include?(candidate) }
-          raise ArgumentError, '红线连接异常' unless edge
+    def boundary_parcel(boundary, name)
+      boundary.merge(name: name, height: 36.0, floor_height: 3.6,
+        setbacks: Array.new(boundary[:points].length,5.0),
+        area: boundary[:area] || Geometry.signed_area(boundary[:points]).abs,
+        high_segment: boundary[:points].length > Geometry::SIMPLIFY_THRESHOLD)
+    end
+
+    def edge_cycles(edges, transformation, name, errors = [])
+      vertices = {}
+      links = edges.map do |edge|
+        edge.vertices.each { |v| vertices[v] = world_point(v.position,transformation) }
+        [edge.start,edge.end]
+      end
+      loops, diagnostics = Boundary.cycles(vertices,links)
+      errors.concat(diagnostics.map { |message| name + ': ' + message })
+      valid = loops.select do |points|
+        begin
+          Boundary.build(points)
+          true
+        rescue ArgumentError => error
+          errors << name + ': ' + error.message
+          false
         end
-        parcels << parcel(points, name + ' / ' + (parcels.length+1).to_s)
       end
-      # Contained cycles can be holes; do not silently fill them.
-      parcels.combination(2) do |a,b|
-        ap = a[:points].map { |p| [p[0]+a[:origin][0],p[1]+a[:origin][1]] }
-        bp = b[:points].map { |p| [p[0]+b[:origin][0],p[1]+b[:origin][1]] }
-        raise ArgumentError, '闭合线存在嵌套或交叠，请先整理为无内孔地块面' if polygons_overlap?(ap,bp)
-      end
-      parcels
+      Boundary.regions(valid).each_with_index.map { |region,i| boundary_parcel(region,name + ' / ' + (i+1).to_s) }
     end
 
     def inside?(p,poly)
@@ -79,17 +71,18 @@ module MattWu
       faces = entities.grep(Sketchup::Face)
       faces.each_with_index do |face,i|
         begin
-          raise ArgumentError, '暂不支持带内孔的地块面' if face.loops.length != 1
-          points = face.outer_loop.vertices.map { |v| world_point(v.position, transformation) }
-          results << parcel(points, name + ' / 面' + (i+1).to_s)
+          loops = [face.outer_loop] + (face.loops - [face.outer_loop])
+          regions = Boundary.regions(loops.map { |ring| ring.vertices.map { |v| world_point(v.position,transformation) } })
+          raise ArgumentError, '地块面内孔关系异常' unless regions.length == 1 && regions.first[:holes].length == face.loops.length-1
+          results << boundary_parcel(regions.first,name + ' / 面' + (i+1).to_s)
         rescue ArgumentError => error
           errors << name + ': ' + error.message
         end
       end
-      edges = entities.grep(Sketchup::Edge).select { |e| e.faces.empty? }
+      edges = entities.grep(Sketchup::Edge).select { |e| (e.faces & faces).empty? }
       unless edges.empty?
         begin
-          results.concat(edge_cycles(edges,transformation,name + ' / 线'))
+          results.concat(edge_cycles(edges,transformation,name + ' / 线',errors))
         rescue ArgumentError => error
           errors << name + ': ' + error.message
         end
@@ -115,7 +108,7 @@ module MattWu
     end
 
     def signature(parcels)
-      parcels.map { |p| [p[:origin],p[:points]] }
+      parcels.map { |p| [p[:origin],p[:points],p[:holes]] }
     end
 
     def show_dialog
@@ -220,11 +213,10 @@ module MattWu
           height = numeric(input['height'],true)
           floor_height = numeric(input['floor_height'],true)
           setbacks = input.fetch('setbacks').map { |v| numeric(v) }
-          if source[:points].length > Geometry::SIMPLIFY_THRESHOLD
-            messages << source[:name] + '：高分段边界计算采用最多 10 mm 简化容差及同额向内裕量；保留逐边退线变化和原始红线'
-          end
+          raise ArgumentError, '已识别内孔；当前体量算法尚不支持内孔，已跳过，避免填满内孔' unless source[:holes].empty?
           cells = Geometry.inset(source[:points],setbacks)
           outlines = Geometry.boundaries(cells)
+          Boundary.verify_outlines!(outlines,source[:points],setbacks)
           name = input['name'].to_s.strip[0,100]
           name = source[:name] if name.empty?
           { source: source, height: height, floor_height: floor_height,

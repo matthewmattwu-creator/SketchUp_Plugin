@@ -37,7 +37,7 @@ class HighSegmentTest < Minitest::Test
     assert_operator simplified.length,:<,poly.length
     assert_in_delta 0.01,margin,1.0e-10
     assert distances.all? { |d| (d-2.01).abs < 1.0e-10 }
-    cells = G.inset(poly,[2]*poly.length)
+    cells = G.inset(poly,[2]*poly.length,approximate: true)
     assert_operator G.area(cells),:>,0
     outlines = G.boundaries(cells)
     assert_equal 1,outlines.length
@@ -69,7 +69,7 @@ class HighSegmentTest < Minitest::Test
       a,b = corners[i],corners[(i+1)%4]
       100.times { |j| t=j/100.0; poly << [a[0]+t*(b[0]-a[0]),a[1]+t*(b[1]-a[1])] }
     end
-    cells = G.inset(poly,[5]*poly.length)
+    cells = G.inset(poly,[5]*poly.length,approximate: true)
     assert_in_delta (100-10.02)*(60-10.02),G.area(cells),0.001
     assert_equal 4,G.boundaries(cells).first.length
   end

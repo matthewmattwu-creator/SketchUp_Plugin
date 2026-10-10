@@ -14,7 +14,7 @@ th,td{padding:7px;text-align:left;border-bottom:1px solid #e3eaed}th{font-size:1
 pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8eff2;padding:14px;border-radius:7px;max-height:230px;overflow:auto}
 @media(max-width:700px){.grid{grid-template-columns:1fr}}
 </style></head><body>
-<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.1.3 预览版</p></header>
+<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.2.0 边界识别预览版</p></header>
 <main>
 <div class="toolbar"><button class="secondary" id="reload">重新读取当前选择</button>
 <div class="field"><label>统一退线（米）</label><input id="defaultSetback" type="number" min="0" step="0.1" value="5"></div>
@@ -23,12 +23,12 @@ pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8ef
 <button id="apply">应用到全部地块</button></div>
 <div class="card"><label>选择地块查看和修改（生成时处理全部列表地块）</label><select id="selector"></select>
 <div class="grid" style="margin-top:18px"><div><svg id="preview" viewBox="0 0 440 310" aria-label="边界与边号预览"></svg>
-<p class="note">预览显示原红线，顶部为模型 +Y；超过 100 条边时抽样显示边号，表格保留全部边。超过 200 边的计算边界采用 10 mm 简化容差及同额向内裕量；原红线不改变。</p></div>
+<p class="note" id="boundaryInfo"></p><p class="note">预览显示原红线，顶部为模型 +Y；超过 100 条边时抽样显示边号，表格保留全部边。原始顶点逐点保留，不自动补口、合点或简化。浅蓝为外环，白色紫边为内孔。</p></div>
 <div><div class="parameters"><div class="name"><label>地块名称</label><input id="name"></div>
 <div><label>限高（米，自红线标高向上）</label><input id="height" type="number" min="0.001" step="0.1"></div>
 <div><label>层高（米，完整层数向下取整）</label><input id="floor_height" type="number" min="0.001" step="0.1"></div></div>
 <div class="scroll"><table><thead><tr><th>红线边号</th><th>退线（米）</th><th>边长（米）</th></tr></thead><tbody id="edges"></tbody></table></div></div></div></div>
-<p class="note">采用到每条原始边段的最短距离退线，转角采用 64 边外包圆近似，结果偏保守。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
+<p class="note">计算直接使用完整原红线；复杂地块超出当前算法能力时会明确报告失败。采用到每条原始边段的最短距离退线，转角采用 64 边外包圆近似，结果偏保守。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
 <div class="bottom"><button id="generate">批量生成可建体量</button><span id="count">等待读取…</span></div>
 <pre id="status" role="status">请选择水平地块面或闭合线。CAD 请先导入 SketchUp。</pre>
 </main><script>
@@ -46,11 +46,14 @@ function svgNode(name,attrs,text){const n=document.createElementNS('http://www.w
 function render(){
  const p=parcels[active];if(!p)return;
  ['name','height','floor_height'].forEach(k=>el(k).value=p[k]);el('edges').replaceChildren();el('preview').replaceChildren();
- const xs=p.points.map(v=>v[0]),ys=p.points.map(v=>v[1]);
+ const holes=p.holes||[],all=p.points.concat(...holes);
+ el('boundaryInfo').textContent='原始外环 '+p.points.length+' 条边 · 内孔 '+holes.length+' 个 · 用地净面积 '+Number(p.area).toFixed(2)+' ㎡'+(holes.length?'；此版仅识别、显示内孔，生成时跳过带孔地块。':'');
+ const xs=all.map(v=>v[0]),ys=all.map(v=>v[1]);
  const xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
  const s=Math.min(340/Math.max(xmax-xmin,0.001),210/Math.max(ymax-ymin,0.001));
  const xy=v=>[220+(v[0]-(xmin+xmax)/2)*s,155-(v[1]-(ymin+ymax)/2)*s];
  svgNode('polygon',{points:p.points.map(v=>xy(v).join(',')).join(' '),fill:'#d9edef',stroke:'#166b7c','stroke-width':2});
+ holes.forEach(ring=>svgNode('polygon',{points:ring.map(v=>xy(v).join(',')).join(' '),fill:'#f4f8f9',stroke:'#9b4fa0','stroke-width':2}));
  const labelStep=Math.max(1,Math.ceil(p.points.length/100));
  p.points.forEach((a,i)=>{
    const b=p.points[(i+1)%p.points.length],m=xy([(a[0]+b[0])/2,(a[1]+b[1])/2]);

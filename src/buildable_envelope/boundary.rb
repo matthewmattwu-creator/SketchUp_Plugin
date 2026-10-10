@@ -1,0 +1,156 @@
+# encoding: UTF-8
+require_relative 'geometry'
+module MattWu
+  module BuildableEnvelope
+    # Recognition only: never snap, simplify, bridge gaps, or change source entities.
+    module Boundary
+      extend self
+      def canonical(poly)
+        oriented = Geometry.signed_area(poly) < 0 ? poly.reverse : poly.dup
+        oriented.rotate(oriented.each_index.min_by { |i| oriented[i] })
+      end
+
+      def point_inside?(p, poly)
+        hit = false
+        poly.each_index do |i|
+          a,b = poly[i],poly[(i+1)%poly.length]
+          return true if Geometry.on_segment?(p,a,b)
+          if (a[1]>p[1]) != (b[1]>p[1])
+            hit = !hit if p[0] < a[0]+(p[1]-a[1])*(b[0]-a[0])/(b[1]-a[1])
+          end
+        end
+        hit
+      end
+
+      def build(points)
+        unless points.is_a?(Array) && points.length >= 3 &&
+          points.all? { |p| p.is_a?(Array) && p.length == 3 && p.all? { |v| v.is_a?(Numeric) && v.finite? } }
+          raise ArgumentError, '红线必须包含至少三个有限三维坐标'
+        end
+        origin = points.min
+        raise ArgumentError, '仅支持水平红线，标高误差不得超过 1 毫米' if points.any? { |p| (p[2]-origin[2]).abs > 0.001 }
+        poly = points.map { |p| [p[0]-origin[0],p[1]-origin[1]] }
+        Geometry.validate(poly)
+        { points: canonical(poly), origin: origin.dup, source_points: points.map(&:dup) }
+      end
+
+      # Classify all non-touching closed loops by containment depth.
+      # Even depths are parcels/islands; direct odd children are their holes.
+      def regions(loops)
+        built = loops.map { |points| build(points) }
+        return [] if built.empty?
+        anchor = built.first[:origin]
+        polys = built.map { |b| b[:points].map { |p| [p[0]+b[:origin][0]-anchor[0],p[1]+b[:origin][1]-anchor[1]] } }
+        parents = Array.new(built.length)
+        built.each_index do |i|
+          built.each_index do |j|
+            next unless j > i
+            next if (built[i][:origin][2]-built[j][:origin][2]).abs > 0.001
+            a,b = polys[i],polys[j]
+            touching = a.each_index.any? do |ai|
+              b.each_index.any? { |bi| Geometry.intersects?(a[ai],a[(ai+1)%a.length],b[bi],b[(bi+1)%b.length]) }
+            end
+            raise ArgumentError, '闭合红线相交、重复或接触，无法唯一确定外环和内孔' if touching
+          end
+          containers = built.each_index.select do |j|
+            j != i && (built[i][:origin][2]-built[j][:origin][2]).abs <= 0.001 &&
+              point_inside?(polys[i].first,polys[j])
+          end
+          parents[i] = containers.min_by { |j| Geometry.signed_area(polys[j]).abs }
+        end
+        depths = built.each_index.map do |i|
+          depth, cursor = 0,parents[i]
+          until cursor.nil?
+            depth += 1
+            raise ArgumentError, '红线嵌套关系异常' if depth > built.length
+            cursor = parents[cursor]
+          end
+          depth
+        end
+        built.each_index.select { |i| depths[i].even? }.map do |i|
+          b = built[i]
+          holes = built.each_index.select { |j| parents[j] == i }.map do |j|
+            canonical(polys[j].map { |p| [p[0]+anchor[0]-b[:origin][0],p[1]+anchor[1]-b[:origin][1]] })
+          end
+          b.merge(holes: holes.sort_by(&:first), area: Geometry.signed_area(b[:points]).abs -
+            holes.sum { |h| Geometry.signed_area(h).abs })
+        end.sort_by { |b| b[:origin] }
+      end
+
+      # Independent check against every original segment, in meters.
+      def verify_outlines!(outlines, poly, setbacks)
+        raise ArgumentError, '退线数量必须与原红线边数一致' unless setbacks.length == poly.length
+        tolerance = 1.0e-6
+        outlines.each do |outline|
+          Geometry.validate(outline)
+          outline.each_index do |i|
+            a,b = outline[i],outline[(i+1)%outline.length]
+            [a,b,[(a[0]+b[0])/2,(a[1]+b[1])/2]].each do |p|
+              raise ArgumentError, '结果超出原红线，已取消此地块' unless point_inside?(p,poly)
+            end
+            poly.each_index do |j|
+              c,d = poly[j],poly[(j+1)%poly.length]
+              x,y,u,v = Geometry.cross(a,b,c),Geometry.cross(a,b,d),Geometry.cross(c,d,a),Geometry.cross(c,d,b)
+              if x*y < 0 && u*v < 0
+                raise ArgumentError, '结果边穿越原红线，已取消此地块'
+              end
+              minimum = if Geometry.intersects?(a,b,c,d)
+                0.0
+              else
+                [Geometry.segment_distance(a,c,d),Geometry.segment_distance(b,c,d),
+                 Geometry.segment_distance(c,a,b),Geometry.segment_distance(d,a,b)].min
+              end
+              if minimum+tolerance < setbacks[j]
+                raise ArgumentError, '结果不满足原始边段退线，已取消此地块'
+              end
+            end
+          end
+        end
+        true
+      end
+
+      # Use topological vertex identity; visually close endpoints stay distinct.
+      # A bad connected component must not discard another valid closed parcel.
+      def cycles(vertices, edges)
+        adjacency = Hash.new { |h,k| h[k] = [] }
+        edges.each_with_index { |(a,b),i| adjacency[a] << i; adjacency[b] << i }
+        remaining = (0...edges.length).to_a
+        loops, errors = [],[]
+        until remaining.empty?
+          pending = [remaining.first]
+          component = []
+          until pending.empty?
+            index = pending.pop
+            next if component.include?(index)
+            component << index
+            edges[index].each { |v| pending.concat(adjacency[v] - component) }
+          end
+          remaining -= component
+          ids = component.flat_map { |i| edges[i] }.uniq
+          bad = ids.reject { |id| adjacency[id].length == 2 }
+          unless bad.empty?
+            open = bad.count { |id| adjacency[id].length == 1 }
+            branch = bad.count { |id| adjacency[id].length > 2 }
+            errors << "红线连通部分未闭合或分叉（开口端点 #{open}，分叉顶点 #{branch}）；未自动补线"
+            next
+          end
+          start = ids.min_by { |id| vertices.fetch(id) }
+          edge = adjacency[start].min_by { |i| vertices.fetch((edges[i] - [start]).first || start) }
+          current, points, visited = start,[],[]
+          loop do
+            raise ArgumentError, '红线连接异常' if visited.include?(edge)
+            points << vertices.fetch(current).dup
+            visited << edge
+            a,b = edges[edge]
+            current = a == current ? b : a
+            break if current == start
+            edge = (adjacency[current] - visited).first
+            raise ArgumentError, '红线连接异常' unless edge
+          end
+          loops << points
+        end
+        [loops,errors]
+      end
+    end
+  end
+end
