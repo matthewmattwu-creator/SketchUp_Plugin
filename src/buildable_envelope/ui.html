@@ -32,7 +32,7 @@ pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8ef
 <button class="secondary" id="regroup">重新自动分组</button><button class="secondary" id="mergeGroups">合并所选相邻组</button><button class="secondary" id="splitGroups">所选拆为单边</button></div>
 <p class="note" id="groupInfo"></p>
 <div class="scroll"><table><thead><tr><th>边段 / 原边范围</th><th>退线（米）</th><th>边长（米）</th></tr></thead><tbody id="edges"></tbody></table></div></div></div></div>
-<p class="note">统一退距采用完整原红线的尖角平行偏移，自动处理凹角和分裂区域；各组不同退距按每条原边的最短距离约束生成，交界采用圆弧过渡（数值近似最多约 0.1 mm 向内保守）。道路侧、邻地侧标记由你选择，退距按项目要求填写。结果均检查原边段退距及越界；带内孔地块暂不生成。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
+<p class="note">统一退距采用完整原红线的尖角平行偏移，自动处理凹角和分裂区域；各组不同退距按每条原边的最短距离约束生成，交界采用圆弧过渡（圆弧近似增加 0.1 mm 退距补偿）。道路侧、邻地侧标记由你选择，退距按项目要求填写。结果均检查原边段退距及越界；带内孔地块暂不生成。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
 <div class="bottom"><button id="generate">批量生成可建体量</button><span id="count">等待读取…</span></div>
 <pre id="status" role="status">请选择水平地块面或闭合线。CAD 请先导入 SketchUp。</pre>
 </main><script src="vendor/clipper.js"></script><script src="offset_engine.js"></script><script src="setback_groups.js"></script><script>
