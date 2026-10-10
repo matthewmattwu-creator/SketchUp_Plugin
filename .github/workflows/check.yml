@@ -19,7 +19,7 @@ jobs:
       - name: Check Ruby syntax
         run: find src test -name '*.rb' -print0 | xargs -0 -n1 ruby -c
       - name: Test geometry
-        run: ruby test/geometry_test.rb
+        run: ruby -Itest -e 'Dir.glob("test/*_test.rb").sort.each { |file| require File.expand_path(file) }'
   package:
     needs: geometry
     runs-on: ubuntu-latest

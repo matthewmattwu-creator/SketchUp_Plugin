@@ -8,6 +8,9 @@ module MattWu
       AREA_EPS = 1.0e-8
       MAX_CELLS = 5000
       ARC_SEGMENTS = 64
+      MAX_SOURCE_EDGES = 5000
+      SIMPLIFY_THRESHOLD = 200
+      CURVE_TOLERANCE = 0.01
 
       def cross(a, b, c)
         (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
@@ -47,12 +50,18 @@ module MattWu
       def validate(poly)
         raise ArgumentError, '至少需要三条边' if poly.length < 3
         raise ArgumentError, '边界坐标无效' unless poly.flatten.all? { |v| v.is_a?(Numeric) && v.finite? }
-        raise ArgumentError, '地块边数超过 200，请先简化 CAD 边界' if poly.length > 200
+        raise ArgumentError, '地块边数超过 5000，请分段整理 CAD 边界' if poly.length > MAX_SOURCE_EDGES
         n = poly.length
+        bounds = n.times.map do |i|
+          a,b = poly[i],poly[(i+1)%n]
+          [[a[0],b[0]].min,[a[0],b[0]].max,[a[1],b[1]].min,[a[1],b[1]].max]
+        end
         n.times do |i|
           raise ArgumentError, '存在零长度边' if distance(poly[i],poly[(i+1)%n]) <= EPS
           ((i+1)...n).each do |j|
             next if j == i+1 || (i == 0 && j == n-1)
+            bi,bj = bounds[i],bounds[j]
+            next if bi[1] < bj[0]-EPS || bj[1] < bi[0]-EPS || bi[3] < bj[2]-EPS || bj[3] < bi[2]-EPS
             raise ArgumentError, '边界自交或重复接触' if intersects?(poly[i],poly[(i+1)%n],poly[j],poly[(j+1)%n])
           end
         end
@@ -117,6 +126,7 @@ module MattWu
 
       # Subtract a convex CCW cutter, yielding disjoint convex pieces.
       def subtract(poly,cutter)
+        return [poly] unless convex_overlap?(poly,cutter)
         pending, kept = poly, []
         cutter.each_index do |i|
           break if pending.empty?
@@ -124,6 +134,18 @@ module MattWu
           kept << outside unless outside.empty?
         end
         kept
+      end
+
+      # SAT avoids splitting cells when a cutter only overlaps their bounding
+      # boxes. Dense curves otherwise create thousands of irrelevant fragments.
+      def convex_overlap?(a,b)
+        [[a,b],[b,a]].all? do |boundary,other|
+          boundary.each_index.all? do |i|
+            p,q = boundary[i],boundary[(i+1)%boundary.length]
+            length = distance(p,q)
+            other.any? { |point| cross(p,q,point)/length > EPS }
+          end
+        end
       end
 
       def overlaps_bounds?(a,b)
@@ -142,10 +164,58 @@ module MattWu
         end
       end
 
+      def segment_distance(p,a,b)
+        dx,dy = b[0]-a[0],b[1]-a[1]
+        length2 = dx*dx+dy*dy
+        return distance(p,a) if length2 <= EPS*EPS
+        t = [[((p[0]-a[0])*dx+(p[1]-a[1])*dy)/length2,0.0].max,1.0].min
+        Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)
+      end
+
+      # Closed-chain RDP. Keep every change in setback, so independently
+      # configured source edges cannot be merged into another edge's setting.
+      def prepare_boundary(poly,setbacks)
+        return [poly,setbacks,0.0] if poly.length <= SIMPLIFY_THRESHOLD
+        n = poly.length
+        anchors = [0]
+        n.times { |i| anchors << i if (setbacks[i]-setbacks[(i-1)%n]).abs > EPS }
+        farthest = (1...n).max_by { |i| distance(poly[0],poly[i]) }
+        anchors << farthest
+        anchors = anchors.uniq.sort
+        kept = anchors.dup
+        anchors.each_with_index do |first,i|
+          last = i+1 < anchors.length ? anchors[i+1] : anchors.first+n
+          stack = [[first,last]]
+          until stack.empty?
+            a_index,b_index = stack.pop
+            next if b_index-a_index <= 1
+            a,b = poly[a_index%n],poly[b_index%n]
+            index = (a_index+1...b_index).max_by { |j| segment_distance(poly[j%n],a,b) }
+            if segment_distance(poly[index%n],a,b) > CURVE_TOLERANCE
+              kept << index%n
+              stack << [a_index,index] << [index,b_index]
+            end
+          end
+        end
+        kept = kept.uniq.sort
+        # Avoid approximate geometry if simplification brings no benefit.
+        return [poly,setbacks,0.0] if kept.length == n || kept.length < 3
+        simplified = kept.map { |i| poly[i] }
+        validate(simplified)
+        distances = kept.each_with_index.map do |first,i|
+          last = i+1 < kept.length ? kept[i+1] : kept.first+n
+          # Each source chain stays within tolerance of its new segment.
+          # Extra inward clearance compensates conservatively for this error.
+          (first...last).map { |j| setbacks[j%n] }.max + CURVE_TOLERANCE
+        end
+        [simplified,distances,CURVE_TOLERANCE]
+      end
+
       def inset(poly, setbacks)
         validate(poly)
         raise ArgumentError, '退线数量必须与边数一致' unless setbacks.length == poly.length
         raise ArgumentError, '退线须为非负有限数值' unless setbacks.all? { |v| v.is_a?(Numeric) && v.finite? && v >= 0 }
+        poly,setbacks,_margin = prepare_boundary(poly,setbacks)
         cells = triangulate(poly)
         cutters = []
         poly.each_index do |i|
@@ -174,6 +244,120 @@ module MattWu
           break if cells.empty?
         end
         cells
+      end
+
+      # Recover the union outline before handing geometry to SketchUp.
+      # Cell partitions contain T-junctions and short internal edges; they are
+      # computational pieces, not faces that should be extruded independently.
+      def boundaries(cells)
+        return [] if cells.empty?
+        tolerance = 1.0e-6
+        vertices, buckets = [], Hash.new { |h,k| h[k] = [] }
+        intern = lambda do |p|
+          bucket = p.map { |v| (v/tolerance).floor }
+          found = nil
+          (-1..1).each do |dx|
+            (-1..1).each do |dy|
+              found ||= buckets[[bucket[0]+dx,bucket[1]+dy]].find { |id| distance(vertices[id],p) <= tolerance }
+            end
+          end
+          unless found
+            found = vertices.length
+            vertices << p
+            buckets[bucket] << found
+          end
+          found
+        end
+        polygons = cells.map do |cell|
+          oriented = signed_area(cell) < 0 ? cell.reverse : cell
+          oriented.map { |p| intern.call(p) }
+        end
+        raise ArgumentError, '边界过于复杂，请简化地块或分批生成' if vertices.length > 4000
+        counts = Hash.new(0)
+        polygons.each do |polygon|
+          polygon.each_index do |i|
+            a_id,b_id = polygon[i],polygon[(i+1)%polygon.length]
+            next if a_id == b_id
+            a,b = vertices[a_id],vertices[b_id]
+            dx,dy = b[0]-a[0],b[1]-a[1]
+            length = distance(a,b)
+            on_line = []
+            vertices.each_with_index do |p,id|
+              next if p[0] < [a[0],b[0]].min-tolerance || p[0] > [a[0],b[0]].max+tolerance
+              next if p[1] < [a[1],b[1]].min-tolerance || p[1] > [a[1],b[1]].max+tolerance
+              t = ((p[0]-a[0])*dx+(p[1]-a[1])*dy)/(length*length)
+              next if t < -tolerance/length || t > 1+tolerance/length
+              next if cross(a,b,p).abs/length > tolerance
+              on_line << [t,id]
+            end
+            on_line.sort_by(&:first).each_cons(2) do |first,last|
+              u,v = first[1],last[1]
+              next if u == v
+              key = [u,v].sort
+              counts[key] += u < v ? 1 : -1
+            end
+          end
+        end
+        outgoing, incoming = {}, Hash.new(0)
+        counts.each do |key,count|
+          next if count == 0
+          raise ArgumentError, '范围分片存在重叠边，已取消生成' unless count.abs == 1
+          a,b = count > 0 ? key : key.reverse
+          raise ArgumentError, '范围在点位相接，请微调退线后重试' if outgoing.key?(a)
+          outgoing[a] = b
+          incoming[b] += 1
+        end
+        raise ArgumentError, '可建范围边界不闭合' unless outgoing.keys.all? { |id| incoming[id] == 1 }
+        loops = []
+        until outgoing.empty?
+          start = outgoing.keys.first
+          current, loop_points = start, []
+          loop do
+            loop_points << vertices[current]
+            following = outgoing.delete(current)
+            raise ArgumentError, '可建范围存在断开的边界' unless following
+            current = following
+            break if current == start
+          end
+          loop_points = simplify_outline(loop_points,tolerance)
+          # Clipping already filters areas below AREA_EPS. Do not reinterpret
+          # their residual boundary cycles as architectural holes or islands.
+          next if signed_area(loop_points).abs <= AREA_EPS
+          raise ArgumentError, format('可建范围存在内孔，暂不支持该结果（面积 %.12f ㎡，%d 边）',signed_area(loop_points).abs,loop_points.length) if signed_area(loop_points) < 0
+          raise ArgumentError, '可建范围过小或有退化边' if loop_points.length < 3
+          loops << loop_points
+        end
+        expected = area(cells)
+        actual = area(loops)
+        raise ArgumentError, '轮廓重建面积不一致' if (actual-expected).abs > [0.001,expected*1.0e-6].max
+        loops
+      end
+
+      def simplify_outline(poly,tolerance = 1.0e-6)
+        work = poly.dup
+        loop do
+          index = work.each_index.find do |i|
+            a,b,c = work[(i-1)%work.length],work[i],work[(i+1)%work.length]
+            length = distance(a,c)
+            next false if length <= tolerance
+            t = ((b[0]-a[0])*(c[0]-a[0])+(b[1]-a[1])*(c[1]-a[1]))/(length*length)
+            t >= 0 && t <= 1 && cross(a,c,b).abs/length <= tolerance
+          end
+          break unless index && work.length > 3
+          work.delete_at(index)
+        end
+        work
+      end
+
+      # Explicitly capped prism. Mesh indices are tested for two faces per edge.
+      def prism(poly,height)
+        raise ArgumentError, '体量高度必须大于零' unless height.finite? && height > 0
+        raise ArgumentError, '体量轮廓须逆时针' unless poly.length >= 3 && signed_area(poly) > AREA_EPS
+        n = poly.length
+        points = poly.map { |p| [p[0],p[1],0.0] } + poly.map { |p| [p[0],p[1],height] }
+        faces = [(0...n).to_a.reverse,(n...2*n).to_a]
+        n.times { |i| j = (i+1)%n; faces << [i,j,j+n,i+n] }
+        { points: points, faces: faces }
       end
 
       def area(cells)
