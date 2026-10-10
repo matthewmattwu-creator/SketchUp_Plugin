@@ -86,20 +86,20 @@ module MattWu
           Geometry.validate(outline)
           outline.each_index do |i|
             a,b = outline[i],outline[(i+1)%outline.length]
-            [a,b,[(a[0]+b[0])/2,(a[1]+b[1])/2]].each do |p|
+            [a,b,[(a[0]+b[0])/2.0,(a[1]+b[1])/2.0]].each do |p|
               raise ArgumentError, '结果超出原红线，已取消此地块' unless point_inside?(p,poly)
             end
             # A segment can exit through a concave vertex without a strict
             # crossing. Check intervals split at every source vertex on it.
             dx,dy = b[0]-a[0],b[1]-a[1]
-            length2 = dx*dx+dy*dy
+            length2 = (dx*dx+dy*dy).to_f
             cuts = [0.0,1.0]
             poly.each do |p|
               next unless Geometry.on_segment?(p,a,b)
               cuts << [[((p[0]-a[0])*dx+(p[1]-a[1])*dy)/length2,0.0].max,1.0].min
             end
             cuts.uniq.sort.each_cons(2) do |first,last|
-              t = (first+last)/2
+              t = (first+last)/2.0
               unless point_inside?([a[0]+t*dx,a[1]+t*dy],poly)
                 raise ArgumentError, '结果边穿越原红线凹口，已取消此地块'
               end
