@@ -157,7 +157,15 @@ module MattWu
                       [b[0]+nx,b[1]+ny],[a[0]+nx,a[1]+ny]]
         end
         poly.each_index do |i|
-          radius = [setbacks[i],setbacks[(i-1)%poly.length]].max
+          previous = (i-1)%poly.length
+          following = (i+1)%poly.length
+          a,b,c = poly[previous],poly[i],poly[following]
+          straight = cross(a,b,c).abs <= EPS &&
+            (b[0]-a[0])*(c[0]-b[0])+(b[1]-a[1])*(c[1]-b[1]) > 0
+          # Adjacent equal-width strips already cover a collinear vertex disk.
+          # Omitting it prevents approximation dents along CAD-split straight edges.
+          next if straight && (setbacks[i]-setbacks[previous]).abs <= EPS
+          radius = [setbacks[i],setbacks[previous]].max
           cutters << disk(poly[i],radius) if radius > 0
         end
         cutters.each do |cutter|
