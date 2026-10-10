@@ -4,7 +4,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 root = Path(__file__).resolve().parents[1]
 src = root / "src"
-target = root / "dist" / "buildable-envelope-0.2.1.rbz"
+target = root / "dist" / "buildable-envelope-0.2.2.rbz"
 target.parent.mkdir(parents=True, exist_ok=True)
 with ZipFile(target, "w", ZIP_DEFLATED) as archive:
     for path in sorted(src.rglob("*")):
@@ -16,6 +16,7 @@ with ZipFile(target) as archive:
     assert "buildable_envelope/main.rb" in archive.namelist()
     assert "buildable_envelope/ui.html" in archive.namelist()
     assert "buildable_envelope/offset_engine.js" in archive.namelist()
+    assert "buildable_envelope/setback_groups.js" in archive.namelist()
     assert "buildable_envelope/vendor/clipper.js" in archive.namelist()
     assert "buildable_envelope/vendor/LICENSES.txt" in archive.namelist()
 print(target)

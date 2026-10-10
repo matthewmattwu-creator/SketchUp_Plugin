@@ -10,11 +10,11 @@ label{display:block;font-size:12px;color:#52696f;margin-bottom:5px}.toolbar{disp
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}.parameters{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .name{grid-column:1/-1}svg{width:100%;height:310px;background:#f4f8f9;border-radius:6px}table{width:100%;border-collapse:collapse;margin-top:12px}
 th,td{padding:7px;text-align:left;border-bottom:1px solid #e3eaed}th{font-size:12px;color:#52696f}
-.scroll{max-height:240px;overflow:auto}.note{font-size:12px;color:#657b82;line-height:1.8}.bottom{display:flex;gap:15px;align-items:center}
+.group-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.group-tools select{width:auto;max-width:150px}.group-tools button{padding:7px 9px;font-size:12px}input[type=checkbox]{width:auto;margin-right:5px}.selected-row{background:#edf4f6}.range{display:block;font-size:11px;color:#657b82}.scroll{max-height:240px;overflow:auto}.note{font-size:12px;color:#657b82;line-height:1.8}.bottom{display:flex;gap:15px;align-items:center}
 pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8eff2;padding:14px;border-radius:7px;max-height:230px;overflow:auto}
 @media(max-width:700px){.grid{grid-template-columns:1fr}}
 </style></head><body>
-<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.2.1 边界识别预览版</p></header>
+<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.2.2 边界识别预览版</p></header>
 <main>
 <div class="toolbar"><button class="secondary" id="reload">重新读取当前选择</button>
 <div class="field"><label>统一退线（米）</label><input id="defaultSetback" type="number" min="0" step="0.1" value="5"></div>
@@ -23,50 +23,76 @@ pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8ef
 <button id="apply">应用到全部地块</button></div>
 <div class="card"><label>选择地块查看和修改（生成时处理全部列表地块）</label><select id="selector"></select>
 <div class="grid" style="margin-top:18px"><div><svg id="preview" viewBox="0 0 440 310" aria-label="边界与边号预览"></svg>
-<p class="note" id="boundaryInfo"></p><p class="note">预览显示原红线，顶部为模型 +Y；超过 100 条边时抽样显示边号，表格保留全部边。原始顶点逐点保留，不自动补口、合点或简化。浅蓝为外环，白色紫边为内孔。</p></div>
+<p class="note" id="boundaryInfo"></p><p class="note">预览按边段组着色并显示组号，顶部为模型 +Y。连续直线和顺滑曲线自动归为一组；每组输入一次退距，应用到组内全部原边。点击预览或勾选表格可选组。白色紫边为内孔。</p></div>
 <div><div class="parameters"><div class="name"><label>地块名称</label><input id="name"></div>
 <div><label>限高（米，自红线标高向上）</label><input id="height" type="number" min="0.001" step="0.1"></div>
 <div><label>层高（米，完整层数向下取整）</label><input id="floor_height" type="number" min="0.001" step="0.1"></div></div>
-<div class="scroll"><table><thead><tr><th>红线边号</th><th>退线（米）</th><th>边长（米）</th></tr></thead><tbody id="edges"></tbody></table></div></div></div></div>
+<div class="group-tools"><select id="viewMode" aria-label="退线编辑方式"><option value="groups">按边段组输入</option><option value="edges">逐边编辑</option></select>
+<select id="groupStrength" aria-label="自动分组强度"><option value="15">较细分组</option><option value="25" selected>标准分组</option><option value="45">更多合并</option></select>
+<button class="secondary" id="regroup">重新自动分组</button><button class="secondary" id="mergeGroups">合并所选相邻组</button><button class="secondary" id="splitGroups">所选拆为单边</button></div>
+<p class="note" id="groupInfo"></p>
+<div class="scroll"><table><thead><tr><th>边段 / 原边范围</th><th>退线（米）</th><th>边长（米）</th></tr></thead><tbody id="edges"></tbody></table></div></div></div></div>
 <p class="note">统一退距采用完整原红线的尖角平行偏移，自动处理凹角和分裂区域；逐边不同退距仍采用原保守圆角算法。结果均检查原边段退距及越界；带内孔地块暂不生成。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
 <div class="bottom"><button id="generate">批量生成可建体量</button><span id="count">等待读取…</span></div>
 <pre id="status" role="status">请选择水平地块面或闭合线。CAD 请先导入 SketchUp。</pre>
-</main><script src="vendor/clipper.js"></script><script src="offset_engine.js"></script><script>
+</main><script src="vendor/clipper.js"></script><script src="offset_engine.js"></script><script src="setback_groups.js"></script><script>
 'use strict';
 let parcels=[],active=0,busy=false;
 const el=id=>document.getElementById(id);
 function report(message){el('status').textContent=message;busy=false;el('generate').disabled=false;}
 function receive(data){
  parcels=data.parcels;active=0;el('selector').replaceChildren();
- parcels.forEach((p,i)=>{const option=document.createElement('option');option.value=i;option.textContent=p.name;el('selector').appendChild(option);});
+ parcels.forEach((p,i)=>{p.groups=SetbackGroups.auto(p.points,p.setbacks);p.viewMode='groups';p.selectedGroups=new Set();const option=document.createElement('option');option.value=i;option.textContent=p.name;el('selector').appendChild(option);});
  el('count').textContent=parcels.length+' 个有效地块';
- report(data.errors.length?'输入检查：\n'+data.errors.join('\n'):'读取完成。可设置逐边退线，再批量生成。');render();
+ report(data.errors.length?'输入检查：\n'+data.errors.join('\n'):'读取完成。已自动归并退线输入项；请核对边段分组，再设置退距。');render();
 }
 function svgNode(name,attrs,text){const n=document.createElementNS('http://www.w3.org/2000/svg',name);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!==undefined)n.textContent=text;el('preview').appendChild(n);return n;}
+function visibleGroups(p){return p.viewMode==='edges'?p.points.map((_,i)=>({edges:[i]})):p.groups;}
+function color(i){return 'hsl('+((i*137.508)%360)+',60%,35%)';}
+function toggleGroup(index){const p=parcels[active];if(p.selectedGroups.has(index))p.selectedGroups.delete(index);else p.selectedGroups.add(index);render();}
 function render(){
  const p=parcels[active];if(!p)return;
- ['name','height','floor_height'].forEach(k=>el(k).value=p[k]);el('edges').replaceChildren();el('preview').replaceChildren();
- const holes=p.holes||[],all=p.points.concat(...holes);
- el('boundaryInfo').textContent='原始外环 '+p.points.length+' 条边 · 内孔 '+holes.length+' 个 · 用地净面积 '+Number(p.area).toFixed(2)+' ㎡'+(holes.length?'；此版仅识别、显示内孔，生成时跳过带孔地块。':'');
+ ['name','height','floor_height'].forEach(k=>el(k).value=p[k]);el('viewMode').value=p.viewMode;
+ el('edges').replaceChildren();el('preview').replaceChildren();
+ const holes=p.holes||[],all=p.points.concat(...holes),groups=visibleGroups(p);
+ el('boundaryInfo').textContent='原始外环 '+p.points.length+' 条边 · 退线输入 '+groups.length+' 项 · 内孔 '+holes.length+' 个 · 用地净面积 '+Number(p.area).toFixed(2)+' ㎡'+(holes.length?'；当前生成时跳过带孔地块。':'');
+ el('groupInfo').textContent='已选 '+p.selectedGroups.size+' 项。分组保留原始坐标和各边编号；“多值”表示原边退距不同，填写后统一该组。';
  const xs=all.map(v=>v[0]),ys=all.map(v=>v[1]);
  const xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
  const s=Math.min(340/Math.max(xmax-xmin,0.001),210/Math.max(ymax-ymin,0.001));
  const xy=v=>[220+(v[0]-(xmin+xmax)/2)*s,155-(v[1]-(ymin+ymax)/2)*s];
- svgNode('polygon',{points:p.points.map(v=>xy(v).join(',')).join(' '),fill:'#d9edef',stroke:'#166b7c','stroke-width':2});
+ svgNode('polygon',{points:p.points.map(v=>xy(v).join(',')).join(' '),fill:'#d9edef',stroke:'#166b7c','stroke-width':1});
  holes.forEach(ring=>svgNode('polygon',{points:ring.map(v=>xy(v).join(',')).join(' '),fill:'#f4f8f9',stroke:'#9b4fa0','stroke-width':2}));
- const labelStep=Math.max(1,Math.ceil(p.points.length/100));
- p.points.forEach((a,i)=>{
-   const b=p.points[(i+1)%p.points.length],m=xy([(a[0]+b[0])/2,(a[1]+b[1])/2]);
-   if(i%labelStep===0){
-    svgNode('circle',{cx:m[0],cy:m[1],r:12,fill:'#143944'});
-    svgNode('text',{x:m[0],y:m[1]+4,fill:'white','font-size':11,'text-anchor':'middle'},i+1);
+ const labelStep=Math.max(1,Math.ceil(groups.length/30));
+ groups.forEach((group,index)=>{
+   const selected=p.selectedGroups.has(index),ids=group.edges;
+   const lengths=ids.map(i=>{const a=p.points[i],b=p.points[(i+1)%p.points.length];return Math.hypot(b[0]-a[0],b[1]-a[1]);});
+   const total=lengths.reduce((a,b)=>a+b,0),line=ids.map(i=>p.points[i]).concat([p.points[(ids[ids.length-1]+1)%p.points.length]]);
+   const stroke=color(index),path=svgNode('polyline',{points:line.map(v=>xy(v).join(',')).join(' '),fill:'none',stroke:stroke,'stroke-width':selected?5:2.5,'stroke-linejoin':'round'});
+   path.style.cursor='pointer';path.addEventListener('click',()=>toggleGroup(index));
+   if(index%labelStep===0){
+    let distance=total/2,j=0;while(j<lengths.length-1&&distance>lengths[j]){distance-=lengths[j];j++;}
+    const a=p.points[ids[j]],b=p.points[(ids[j]+1)%p.points.length],t=lengths[j]?distance/lengths[j]:0;
+    const m=xy([a[0]+t*(b[0]-a[0]),a[1]+t*(b[1]-a[1])]);
+    const circle=svgNode('circle',{cx:m[0],cy:m[1],r:12,fill:stroke});
+    const label=svgNode('text',{x:m[0],y:m[1]+4,fill:'white','font-size':11,'text-anchor':'middle'},p.viewMode==='edges'?ids[0]+1:index+1);
+    [circle,label].forEach(node=>{node.style.cursor='pointer';node.addEventListener('click',()=>toggleGroup(index));});
    }
-   const tr=document.createElement('tr'),number=document.createElement('td'),field=document.createElement('td'),length=document.createElement('td'),input=document.createElement('input');
-   number.textContent='边 '+(i+1);input.type='number';input.min=0;input.step=0.1;input.value=p.setbacks[i];input.setAttribute('aria-label','边 '+(i+1)+' 退线');
-   input.addEventListener('input',()=>p.setbacks[i]=input.value);field.appendChild(input);length.textContent=Math.hypot(b[0]-a[0],b[1]-a[1]).toFixed(2);
-   tr.append(number,field,length);el('edges').appendChild(tr);
+   const tr=document.createElement('tr'),number=document.createElement('td'),field=document.createElement('td'),length=document.createElement('td'),input=document.createElement('input'),check=document.createElement('input'),title=document.createElement('span'),range=document.createElement('span');
+   if(selected)tr.className='selected-row';
+   check.type='checkbox';check.checked=selected;check.setAttribute('aria-label','选择边段 '+(index+1));check.addEventListener('change',()=>toggleGroup(index));
+   title.textContent=p.viewMode==='edges'?'边 '+(ids[0]+1):'组 '+(index+1);title.style.color=stroke;
+   range.className='range';range.textContent=ids.length===1?'原边 '+(ids[0]+1):'原边 '+(ids[0]+1)+' → '+(ids[ids.length-1]+1)+' · '+ids.length+' 条';range.title=ids.map(i=>i+1).join(', ');
+   number.append(check,title,range);
+   input.type='number';input.min=0;input.step=0.1;const value=SetbackGroups.value(group,p.setbacks);input.value=value===null?'':value;input.placeholder=value===null?'多值':'';input.setAttribute('aria-label',title.textContent+' 退线');
+   input.addEventListener('input',()=>SetbackGroups.assign(group,p.setbacks,input.value));
+   field.appendChild(input);length.textContent=total.toFixed(2);tr.append(number,field,length);el('edges').appendChild(tr);
  });
 }
+el('viewMode').addEventListener('change',()=>{const p=parcels[active];if(!p||busy)return;p.viewMode=el('viewMode').value;p.selectedGroups.clear();render();});
+el('regroup').addEventListener('click',()=>{const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.auto(p.points,p.setbacks,Number(el('groupStrength').value));p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
+el('mergeGroups').addEventListener('click',()=>{const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.merge(visibleGroups(p),[...p.selectedGroups],p.points.length);p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
+el('splitGroups').addEventListener('click',()=>{const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.split(visibleGroups(p),[...p.selectedGroups],p.points.length);p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
 ['name','height','floor_height'].forEach(k=>el(k).addEventListener('input',()=>{if(parcels[active])parcels[active][k]=el(k).value;}));
 el('selector').addEventListener('change',()=>{active=Number(el('selector').value);render();});
 el('reload').addEventListener('click',()=>{if(!busy)sketchup.reload();});
