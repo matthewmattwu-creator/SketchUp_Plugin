@@ -67,3 +67,26 @@ class SelectionTest < Minitest::Test
     assert_in_delta 100,result[:area],1e-8
   end
 end
+
+class UniformOffsetIntegrationTest < Minitest::Test
+  P = MattWu::BuildableEnvelope
+  def source; {points:[[0.0,0.0],[20.0,0.0],[20.0,10.0],[0.0,10.0]]}; end
+  def input(outlines)
+    {'offset_result'=>{'outlines'=>outlines,'method'=>'parallel-miter'}}
+  end
+  def test_accepts_verified_uniform_offset_without_cell_fragmentation
+    outlines,method=P.prepared_outlines(source,[2.0]*4,input([[[2.0,2.0],[18.0,2.0],[18.0,8.0],[2.0,8.0]]]))
+    assert_equal 1,outlines.length
+    assert_equal '尖角平行偏移',method
+  end
+  def test_rejects_under_setback_result
+    assert_raises(ArgumentError){P.prepared_outlines(source,[2.0]*4,input([[[1.0,1.0],[19.0,1.0],[19.0,9.0],[1.0,9.0]]]))}
+  end
+  def test_rejects_uniform_engine_result_for_variable_edge_parameters
+    assert_raises(ArgumentError){P.prepared_outlines(source,[2,3,2,2],input([]))}
+  end
+  def test_empty_result_means_no_buildable_area
+    outlines,_method=P.prepared_outlines(source,[50]*4,input([]))
+    assert_empty outlines
+  end
+end

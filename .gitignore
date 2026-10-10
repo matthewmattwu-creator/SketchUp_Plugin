@@ -2,3 +2,5 @@ dist/
 *.skp
 *.skb
 __pycache__/
+
+tmp/

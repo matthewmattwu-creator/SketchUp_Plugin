@@ -16,6 +16,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Test local polygon offset and write synthetic fixtures
+        run: node test/offset_engine_test.js
       - name: Check Ruby syntax
         run: find src test -name '*.rb' -print0 | xargs -0 -n1 ruby -c
       - name: Test geometry

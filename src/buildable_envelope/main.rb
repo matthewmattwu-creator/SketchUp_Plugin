@@ -203,6 +203,32 @@ module MattWu
       body
     end
 
+    def prepared_outlines(source,setbacks,input)
+      raise ArgumentError, '退线数量必须与原红线边数一致' unless setbacks.length == source[:points].length
+      result = input['offset_result']
+      if result
+        raise ArgumentError, '快速偏移仅支持统一退距' unless setbacks.all? { |d| d == setbacks.first }
+        raise ArgumentError, '偏移计算方式无效' unless result['method'] == 'parallel-miter'
+        outlines = result['outlines']
+        unless outlines.is_a?(Array) && outlines.length <= 5000 &&
+          outlines.all? { |ring| ring.is_a?(Array) && ring.length >= 3 && ring.length <= 10000 &&
+            ring.all? { |p| p.is_a?(Array) && p.length == 2 && p.all? { |v| v.is_a?(Numeric) && v.finite? } } }
+          raise ArgumentError, '偏移结果坐标或数量无效'
+        end
+        outlines.each { |ring| raise ArgumentError, '偏移结果方向无效' unless Geometry.signed_area(ring) > Geometry::AREA_EPS }
+        Boundary.verify_outlines!(outlines,source[:points],setbacks)
+        [outlines,'尖角平行偏移']
+      else
+        raise ArgumentError, input['offset_error'].to_s if input['offset_error']
+        # Existing variable-edge semantics remain explicit until a weighted
+        # polygon engine is available. Never silently use a different distance.
+        cells = Geometry.inset(source[:points],setbacks)
+        outlines = Geometry.boundaries(cells)
+        Boundary.verify_outlines!(outlines,source[:points],setbacks)
+        [outlines,'逐边圆角保守退线']
+      end
+    end
+
     def generate(inputs)
       raise ArgumentError, '参数列表无效，请重新读取' unless inputs.is_a?(Array) && inputs.length == @parcels.length
       messages = @errors.map { |message| '输入跳过：' + message }
@@ -214,13 +240,12 @@ module MattWu
           floor_height = numeric(input['floor_height'],true)
           setbacks = input.fetch('setbacks').map { |v| numeric(v) }
           raise ArgumentError, '已识别内孔；当前体量算法尚不支持内孔，已跳过，避免填满内孔' unless source[:holes].empty?
-          cells = Geometry.inset(source[:points],setbacks)
-          outlines = Geometry.boundaries(cells)
-          Boundary.verify_outlines!(outlines,source[:points],setbacks)
+          outlines,method = prepared_outlines(source,setbacks,input)
+          cells = outlines
           name = input['name'].to_s.strip[0,100]
           name = source[:name] if name.empty?
           { source: source, height: height, floor_height: floor_height,
-            cells: cells, outlines: outlines, setbacks: setbacks, name: name }
+            cells: cells, outlines: outlines, setbacks: setbacks, name: name, method: method }
         rescue => error
           messages << source[:name] + '：失败 · ' + error.message
           nil
@@ -253,8 +278,8 @@ module MattWu
           volume.material = Sketchup::Color.new(92,160,176)
           floors = (data[:height]/data[:floor_height] + 1.0e-9).floor
           gfa = area*floors
-          label = format("%s\n可建占地：%.2f ㎡\n限高：%.2f m · %d 层\n满铺估算建筑面积：%.2f ㎡\n层高：%.2f m · 圆角保守退线",
-            data[:name],area,data[:height],floors,gfa,data[:floor_height])
+          label = format("%s\n可建占地：%.2f ㎡\n限高：%.2f m · %d 层\n满铺估算建筑面积：%.2f ㎡\n层高：%.2f m · %s",
+            data[:name],area,data[:height],floors,gfa,data[:floor_height],data[:method])
           anchor = Geom::Point3d.new(0,0,data[:height]/INCH_TO_M)
           group.entities.add_text(label,anchor)
           group.set_attribute(DICTIONARY,'parameters',JSON.generate(data.reject { |key,_| [:cells,:source,:outlines].include?(key) }))

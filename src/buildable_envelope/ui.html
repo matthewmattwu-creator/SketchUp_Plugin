@@ -14,7 +14,7 @@ th,td{padding:7px;text-align:left;border-bottom:1px solid #e3eaed}th{font-size:1
 pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8eff2;padding:14px;border-radius:7px;max-height:230px;overflow:auto}
 @media(max-width:700px){.grid{grid-template-columns:1fr}}
 </style></head><body>
-<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.2.0 边界识别预览版</p></header>
+<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.2.1 边界识别预览版</p></header>
 <main>
 <div class="toolbar"><button class="secondary" id="reload">重新读取当前选择</button>
 <div class="field"><label>统一退线（米）</label><input id="defaultSetback" type="number" min="0" step="0.1" value="5"></div>
@@ -28,10 +28,10 @@ pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8ef
 <div><label>限高（米，自红线标高向上）</label><input id="height" type="number" min="0.001" step="0.1"></div>
 <div><label>层高（米，完整层数向下取整）</label><input id="floor_height" type="number" min="0.001" step="0.1"></div></div>
 <div class="scroll"><table><thead><tr><th>红线边号</th><th>退线（米）</th><th>边长（米）</th></tr></thead><tbody id="edges"></tbody></table></div></div></div></div>
-<p class="note">计算直接使用完整原红线；复杂地块超出当前算法能力时会明确报告失败。采用到每条原始边段的最短距离退线，转角采用 64 边外包圆近似，结果偏保守。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
+<p class="note">统一退距采用完整原红线的尖角平行偏移，自动处理凹角和分裂区域；逐边不同退距仍采用原保守圆角算法。结果均检查原边段退距及越界；带内孔地块暂不生成。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
 <div class="bottom"><button id="generate">批量生成可建体量</button><span id="count">等待读取…</span></div>
 <pre id="status" role="status">请选择水平地块面或闭合线。CAD 请先导入 SketchUp。</pre>
-</main><script>
+</main><script src="vendor/clipper.js"></script><script src="offset_engine.js"></script><script>
 'use strict';
 let parcels=[],active=0,busy=false;
 const el=id=>document.getElementById(id);
@@ -79,7 +79,19 @@ el('generate').addEventListener('click',()=>{
  if(busy||!parcels.length)return;
  if(parcels.some(p=>String(p.height).trim()===''||String(p.floor_height).trim()===''||p.setbacks.some(v=>String(v).trim()===''))){report('参数不能为空。');return;}
  busy=true;el('generate').disabled=true;el('status').textContent='正在计算与生成，请稍候…';
- sketchup.generate(JSON.stringify(parcels.map(p=>({id:p.id,name:p.name,height:p.height,floor_height:p.floor_height,setbacks:p.setbacks}))));
+ // Yield to the browser so the status is painted before local geometry work.
+ setTimeout(()=>{
+  const inputs=parcels.map(p=>{
+   const input={id:p.id,name:p.name,height:p.height,floor_height:p.floor_height,setbacks:p.setbacks};
+   const distances=p.setbacks.map(Number);
+   if(!(p.holes||[]).length && distances.every(d=>d===distances[0])){
+    try{input.offset_result=BuildableOffset.solve(p.points,distances);}
+    catch(error){input.offset_error=error.message;}
+   }
+   return input;
+  });
+  sketchup.generate(JSON.stringify(inputs));
+ },0);
 });
 document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
 </script></body></html>
