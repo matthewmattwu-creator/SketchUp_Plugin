@@ -126,6 +126,7 @@ module MattWu
 
       # Subtract a convex CCW cutter, yielding disjoint convex pieces.
       def subtract(poly,cutter)
+        return [poly] unless convex_overlap?(poly,cutter)
         pending, kept = poly, []
         cutter.each_index do |i|
           break if pending.empty?
@@ -133,6 +134,18 @@ module MattWu
           kept << outside unless outside.empty?
         end
         kept
+      end
+
+      # SAT avoids splitting cells when a cutter only overlaps their bounding
+      # boxes. Dense curves otherwise create thousands of irrelevant fragments.
+      def convex_overlap?(a,b)
+        [[a,b],[b,a]].all? do |boundary,other|
+          boundary.each_index.all? do |i|
+            p,q = boundary[i],boundary[(i+1)%boundary.length]
+            length = distance(p,q)
+            other.any? { |point| cross(p,q,point)/length > EPS }
+          end
+        end
       end
 
       def overlaps_bounds?(a,b)
