@@ -320,7 +320,7 @@ module MattWu
             break if current == start
           end
           loop_points = simplify_outline(loop_points,tolerance)
-          raise ArgumentError, '可建范围存在内孔，暂不支持该结果' if signed_area(loop_points) < 0
+          raise ArgumentError, format('可建范围存在内孔，暂不支持该结果（面积 %.12f ㎡，%d 边）',signed_area(loop_points).abs,loop_points.length) if signed_area(loop_points) < 0
           raise ArgumentError, '可建范围过小或有退化边' if loop_points.length < 3
           loops << loop_points
         end
