@@ -4,6 +4,7 @@ require 'json'
 require_relative 'geometry'
 require_relative 'solid_check'
 require_relative 'boundary'
+require_relative 'cad_import'
 module MattWu
   module BuildableEnvelope
     extend self
@@ -66,9 +67,9 @@ module MattWu
       end
     end
 
-    def scan(entities, transformation, name, results, errors, depth = 0)
+    def scan(entities, transformation, name, results, errors, depth = 0, tag = nil, inherited = false)
       raise ArgumentError, '组嵌套超过 20 层' if depth > 20
-      faces = entities.grep(Sketchup::Face)
+      faces = entities.grep(Sketchup::Face).select { |entity| tag.nil? || entity.layer.name == tag || (inherited && entity.layer == entity.model.layers[0]) }
       faces.each_with_index do |face,i|
         begin
           loops = [face.outer_loop] + (face.loops - [face.outer_loop])
@@ -79,7 +80,7 @@ module MattWu
           errors << name + ': ' + error.message
         end
       end
-      edges = entities.grep(Sketchup::Edge).select { |e| (e.faces & faces).empty? }
+      edges = entities.grep(Sketchup::Edge).select { |e| (tag.nil? || e.layer.name == tag || (inherited && e.layer == e.model.layers[0])) && (e.faces & faces).empty? }
       unless edges.empty?
         begin
           results.concat(edge_cycles(edges,transformation,name + ' / 线',errors))
@@ -92,7 +93,8 @@ module MattWu
         next if entity.get_attribute(DICTIONARY,'generated')
         child = entity.is_a?(Sketchup::Group) ? entity.entities : entity.definition.entities
         child_name = entity.name.empty? ? name + ' / 组' : name + ' / ' + entity.name
-        scan(child,transformation*entity.transformation,child_name,results,errors,depth+1)
+        child_matches = !tag.nil? && (entity.layer == entity.model.layers[0] ? inherited : entity.layer.name == tag)
+        scan(child,transformation*entity.transformation,child_name,results,errors,depth+1,tag,child_matches)
       end
     end
 
@@ -117,7 +119,13 @@ module MattWu
         return
       end
       @model = Sketchup.active_model
-      @parcels,@errors = capture(@model)
+      @cad_mode=false
+      @parcels,@errors=[],[]
+      begin
+        @parcels,@errors=capture(@model) unless @model.selection.empty?
+      rescue ArgumentError => error
+        @errors=[error.message]
+      end
       @signature = signature(@parcels)
       @dialog.close if @dialog
       @dialog = UI::HtmlDialog.new(dialog_title: '可建体量 · 退线 + 限高',
@@ -127,6 +135,7 @@ module MattWu
       @dialog.add_action_callback('reload') do |_context|
         begin
           @model = Sketchup.active_model
+          @cad_mode=false
           @parcels,@errors = capture(@model)
           @signature = signature(@parcels)
           send_data
@@ -134,10 +143,44 @@ module MattWu
           report(error.message)
         end
       end
+      @dialog.add_action_callback('import_cad') do |_context|
+        begin
+          raise ArgumentError, '请退出组或组件编辑后导入' if Sketchup.active_model.active_path
+          path=UI.openpanel('选择 CAD 红线文件',nil,'CAD 文件|*.dwg;*.dxf||')
+          next unless path
+          target_model=Sketchup.active_model
+          definition=CadImport.load_definition(target_model,path)
+          @cad_instance=CadImport.place(target_model,definition,File.basename(path),Geom::Transformation.new)
+          @model=target_model
+          @cad_mode=false;@parcels=[];@errors=[];@signature=[]
+          send_data
+          size=@cad_instance.bounds
+          info={name: File.basename(path),tags: CadImport.tags(definition.entities),
+            width: size.width.to_f*INCH_TO_M,height: size.height.to_f*INCH_TO_M}
+          @dialog.execute_script('cadLoaded('+JSON.generate(info)+')')
+          report('CAD 已导入独立组件。请核对尺寸，选择红线图层后识别。CAD 单位由 SketchUp CAD 导入器处理，请用已知边长核对。')
+        rescue => error
+          report('CAD 导入失败：'+error.message)
+        end
+      end
+      @dialog.add_action_callback('read_cad') do |_context,tag|
+        begin
+          @cad_tag=tag.to_s
+          raise ArgumentError, '请选择红线图层' if @cad_tag.empty?
+          @cad_mode=true
+          @parcels,@errors=capture_cad
+          @signature=signature(@parcels)
+          send_data
+        rescue => error
+          @cad_mode=false;@parcels=[];@signature=[]
+          send_data
+          report('CAD 红线识别失败：'+error.message)
+        end
+      end
       @dialog.add_action_callback('generate') do |_context,payload|
         begin
           raise ArgumentError, '模型已经切换，请重新读取选择' unless Sketchup.active_model == @model
-          current,_errors = capture(@model)
+          current,_errors = @cad_mode ? capture_cad : capture(@model)
           raise ArgumentError, '选择或红线已改变，请重新读取选择' unless signature(current) == @signature
           generate(JSON.parse(payload))
         rescue => error
@@ -147,6 +190,20 @@ module MattWu
       @dialog.show
     rescue => error
       UI.messagebox(error.message)
+    end
+
+    def capture_cad
+      raise ArgumentError, 'CAD 所在模型已切换' unless Sketchup.active_model == @model
+      raise ArgumentError, '请退出组编辑，重新选择导入的 CAD 组件' if @model.active_path
+      unless @cad_instance && @cad_instance.valid? && @model.selection.to_a == [@cad_instance]
+        raise ArgumentError, 'CAD 组件选择已改变，请重新读取当前选择'
+      end
+      results,errors=[],[]
+      scan([@cad_instance],Geom::Transformation.new,'CAD 红线',results,errors,0,@cad_tag)
+      raise ArgumentError, '所选图层没有有效闭合地块。'+errors.join('；') if results.empty?
+      raise ArgumentError, '单批最多 50 个地块，请分批处理' if results.length > 50
+      results.each_with_index { |p,i| p[:id]=i.to_s;p[:name]='地块'+(i+1).to_s+' · '+p[:name] }
+      [results,errors]
     end
 
     def send_data

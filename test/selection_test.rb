@@ -109,3 +109,52 @@ class VariableOffsetIntegrationTest < Minitest::Test
     assert_raises(ArgumentError){P.prepared_outlines(source,[2,4,3,1],{})}
   end
 end
+
+class CadLayerFilterTest < Minitest::Test
+  P=MattWu::BuildableEnvelope
+  Layer=Struct.new(:name)
+  class Component < Sketchup::ComponentInstance
+    attr_reader :layer,:model,:definition,:transformation
+    def initialize(layer,model,faces)
+      @layer=layer;@model=model;@definition=Struct.new(:entities).new(faces);@transformation=Identity.new
+    end
+    def name;'CAD';end
+    def get_attribute(*);nil;end
+  end
+  class Identity
+    def *(_other);self;end
+    def [](i);0;end
+  end
+  def faces
+    helper=SelectionTest.new('test_face_and_selected_border_are_not_duplicated')
+    a=Sketchup::Face.new([helper.ring(0,0,10)])
+    b=Sketchup::Face.new([helper.ring(20,0,10)])
+    a.define_singleton_method(:layer){Layer.new('红线')}
+    b.define_singleton_method(:layer){Layer.new('道路')}
+    c=Sketchup::Face.new([helper.ring(40,0,10)])
+    c.define_singleton_method(:layer){Layer.new('Layer0')}
+    [a,b,c].each { |face| face.define_singleton_method(:model){Struct.new(:layers).new([Layer.new('Layer0')])} }
+    [a,b,c]
+  end
+  def test_only_selected_cad_layer_is_recognized
+    results,errors=[],[]
+    P.scan(faces,[0,0,0],'CAD',results,errors,0,'红线')
+    assert_equal 1,results.length
+    assert_empty errors
+  end
+  def test_default_component_tag_does_not_include_other_layers
+    results,errors=[],[];default=Layer.new('Layer0')
+    component=Component.new(default,Struct.new(:layers).new([default]),faces)
+    P.scan([component],Identity.new,'CAD',results,errors,0,'Layer0')
+    assert_equal 1,results.length
+    assert_in_delta 40,results.first[:origin][0],1e-8
+  end
+  def test_tagged_component_can_supply_its_boundary_layer
+    results,errors=[],[];default=Layer.new('Layer0')
+    component=Component.new(Layer.new('红线'),Struct.new(:layers).new([default]),faces)
+    P.scan([component],Identity.new,'CAD',results,errors,0,'红线')
+    assert_equal 2,results.length
+    assert_equal [0,40],results.map { |r| r[:origin][0].round }.sort
+    assert_empty errors
+  end
+end

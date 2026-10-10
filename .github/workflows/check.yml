@@ -23,6 +23,8 @@ jobs:
         run: node test/offset_engine_test.js
       - name: Test grouping and UI transport
         run: node test/setback_groups_test.js
+      - name: Test planning condition parser
+        run: node test/conditions_parser_test.js
       - name: Check Ruby syntax
         run: find src test -name '*.rb' -print0 | xargs -0 -n1 ruby -c
       - name: Test geometry
