@@ -81,6 +81,10 @@ class BoundaryTest < Minitest::Test
     assert_raises(ArgumentError) { B.verify_outlines!([[[1,1],[9,1],[9,9],[1,9]]],poly,[2]*4) }
     assert_raises(ArgumentError) { B.verify_outlines!([[[-1,2],[8,2],[8,8],[-1,8]]],poly,[0]*4) }
   end
+  def test_segment_cannot_bridge_notch_by_touching_its_vertices
+    poly = [[0,0],[10,0],[10,10],[2,10],[2,4],[1,4],[1,10],[0,10]]
+    assert_raises(ArgumentError) { B.verify_outlines!([[[0,0],[10,0],[10,10],[0,10]]],poly,[0]*8) }
+  end
   def test_zero_setback_matches_dense_rectangle_without_extra_margin
     poly = [[0,0],[5,0],[10,0],[10,5],[10,10],[5,10],[0,10],[0,5]]
     outlines = G.boundaries(G.inset(poly,[0]*8))
