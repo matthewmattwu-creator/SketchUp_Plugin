@@ -1,8 +1,8 @@
-/* Local uniform setback engine. Coordinates are meters, integer grid 1 micrometer. */
+/* Local uniform setback engine. Coordinates are meters, integer grid 0.1 micrometer. */
 (function(root) {
 'use strict';
 const C = typeof module==='object' && module.exports ? require('./vendor/clipper') : root.ClipperLib;
-const SCALE=1000000;
+const SCALE=10000000;
 function solve(points,setbacks) {
  if(!Array.isArray(points)||points.length<3||points.length>5000)throw Error('原红线顶点数量无效');
  if(!Array.isArray(setbacks)||setbacks.length!==points.length)throw Error('退线数量必须与原红线边数一致');

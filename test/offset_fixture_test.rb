@@ -10,7 +10,11 @@ class OffsetFixtureTest < Minitest::Test
     fixtures=JSON.parse(File.read(path))
     assert_equal 9,fixtures.length
     fixtures.each do |item|
-      assert B.verify_outlines!(item['outlines'],item['points'],item['setbacks']),item['name']
+      begin
+        assert B.verify_outlines!(item['outlines'],item['points'],item['setbacks']),item['name']
+      rescue ArgumentError => error
+        raise ArgumentError, item['name'] + ': ' + error.message
+      end
       assert_operator G.area(item['outlines']),:<=,G.signed_area(item['points']).abs+0.001,item['name']
       item['outlines'].each do |outline|
         mesh=G.prism(outline,36.0)

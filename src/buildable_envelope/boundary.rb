@@ -14,7 +14,10 @@ module MattWu
         hit = false
         poly.each_index do |i|
           a,b = poly[i],poly[(i+1)%poly.length]
-          return true if Geometry.on_segment?(p,a,b)
+          if p[0] >= [a[0],b[0]].min-Geometry::EPS && p[0] <= [a[0],b[0]].max+Geometry::EPS &&
+            p[1] >= [a[1],b[1]].min-Geometry::EPS && p[1] <= [a[1],b[1]].max+Geometry::EPS
+            return true if Geometry.on_segment?(p,a,b)
+          end
           if (a[1]>p[1]) != (b[1]>p[1])
             hit = !hit if p[0] < a[0]+(p[1]-a[1])*(b[0]-a[0])/(b[1]-a[1]).to_f
           end
@@ -82,6 +85,10 @@ module MattWu
       def verify_outlines!(outlines, poly, setbacks)
         raise ArgumentError, '退线数量必须与原红线边数一致' unless setbacks.length == poly.length
         tolerance = 1.0e-6
+        source_bounds = poly.each_index.map do |j|
+          c,d = poly[j],poly[(j+1)%poly.length]
+          [[c[0],d[0]].min,[c[0],d[0]].max,[c[1],d[1]].min,[c[1],d[1]].max]
+        end
         outlines.each do |outline|
           Geometry.validate(outline)
           outline.each_index do |i|
@@ -94,7 +101,10 @@ module MattWu
             dx,dy = b[0]-a[0],b[1]-a[1]
             length2 = (dx*dx+dy*dy).to_f
             cuts = [0.0,1.0]
+            bounds = [[a[0],b[0]].min,[a[0],b[0]].max,[a[1],b[1]].min,[a[1],b[1]].max]
             poly.each do |p|
+              next if p[0] < bounds[0]-Geometry::EPS || p[0] > bounds[1]+Geometry::EPS ||
+                p[1] < bounds[2]-Geometry::EPS || p[1] > bounds[3]+Geometry::EPS
               next unless Geometry.on_segment?(p,a,b)
               cuts << [[((p[0]-a[0])*dx+(p[1]-a[1])*dy)/length2,0.0].max,1.0].min
             end
@@ -105,6 +115,12 @@ module MattWu
               end
             end
             poly.each_index do |j|
+              sb = source_bounds[j]
+              clearance = setbacks[j]+tolerance
+              # Disjoint expanded boxes prove adequate distance; only nearby
+              # original segments need exact crossing and distance calculations.
+              next if bounds[1]+clearance < sb[0] || sb[1]+clearance < bounds[0] ||
+                bounds[3]+clearance < sb[2] || sb[3]+clearance < bounds[2]
               c,d = poly[j],poly[(j+1)%poly.length]
               x,y,u,v = Geometry.cross(a,b,c),Geometry.cross(a,b,d),Geometry.cross(c,d,a),Geometry.cross(c,d,b)
               if x*y < 0 && u*v < 0
