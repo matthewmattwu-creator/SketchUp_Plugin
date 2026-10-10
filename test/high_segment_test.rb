@@ -87,3 +87,23 @@ class HighSegmentTest < Minitest::Test
     assert_raises(ArgumentError) { G.validate(Array.new(5001) { |i| [i.to_f,0.0] }) }
   end
 end
+
+class CurveNumericalToleranceTest < Minitest::Test
+  G = MattWu::BuildableEnvelope::Geometry
+
+  def test_sub_tolerance_void_is_not_a_building_hole
+    square = [[0,0],[10,0],[10,10],[0,10]]
+    void = [[5,5],[5.00001,5],[5.00001,5.00001],[5,5.00001]]
+    cells = G.subtract(square,void)
+    outline = G.boundaries(cells)
+    assert_equal 1,outline.length
+    assert_equal 4,outline.first.length
+    assert_in_delta 100,G.area(outline),G::AREA_EPS
+  end
+
+  def test_real_hole_is_still_rejected
+    square = [[0,0],[10,0],[10,10],[0,10]]
+    hole = [[4,4],[6,4],[6,6],[4,6]]
+    assert_raises(ArgumentError) { G.boundaries(G.subtract(square,hole)) }
+  end
+end
