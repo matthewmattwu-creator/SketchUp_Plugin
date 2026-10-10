@@ -169,22 +169,44 @@ module MattWu
       number
     end
 
-    def merged_faces(group,cells,origin)
-      entities = group.entities
-      cells.each do |cell|
-        points = cell.map { |p| Geom::Point3d.new((p[0]+origin[0])/INCH_TO_M,(p[1]+origin[1])/INCH_TO_M,origin[2]/INCH_TO_M) }
-        face = entities.add_face(points)
-        raise ArgumentError, 'SketchUp 无法创建局部面，请检查过短边' unless face
-        face.reverse! if face.normal.z < 0
+    def add_outline(entities,outline)
+      points = outline.map { |p| Geom::Point3d.new(p[0]/INCH_TO_M,p[1]/INCH_TO_M,0) }
+      face = entities.add_face(points)
+      raise ArgumentError, 'SketchUp 无法创建范围面，请检查过短边' unless face
+      face.reverse! if face.normal.z < 0
+      face
+    end
+
+    def build_prism(container,outline,height,index)
+      body = container.entities.add_group
+      body.name = '闭合体量 ' + index.to_s
+      mesh = Geometry.prism(outline,height)
+      points = mesh[:points].map { |p| Geom::Point3d.new(*p.map { |v| v/INCH_TO_M }) }
+      entities = body.entities
+      mesh[:faces].each_with_index do |indices,face_index|
+        face_points = indices.map { |i| points[i] }
+        face = entities.add_face(face_points)
+        raise ArgumentError, '无法创建体量封闭面，请检查过短边' unless face
+        expected_normal = if face_index < 2
+          Geom::Vector3d.new(0,0,face_index == 0 ? -1 : 1)
+        else
+          (face_points[1]-face_points[0]).cross(face_points[2]-face_points[0])
+        end
+        face.reverse! if face.normal.dot(expected_normal) < 0
       end
-      internal = entities.grep(Sketchup::Edge).select { |e| e.faces.length == 2 }
-      entities.erase_entities(internal) unless internal.empty?
-      faces = entities.grep(Sketchup::Face)
-      actual = faces.sum { |f| f.area*INCH_TO_M*INCH_TO_M }
-      expected = Geometry.area(cells)
-      raise ArgumentError, '面合并面积不一致，已取消此地块' if (actual-expected).abs > [0.001,expected*1.0e-6].max
-      faces.each { |f| f.reverse! if f.normal.z < 0 }
-      faces
+      edges = entities.grep(Sketchup::Edge)
+      loose = edges.count { |e| e.faces.empty? }
+      open = edges.count { |e| e.faces.length == 1 }
+      multiple = edges.count { |e| e.faces.length > 2 }
+      unless loose == 0 && open == 0 && multiple == 0 && body.definition.manifold?
+        raise ArgumentError, format('体量闭合检查失败（游离边 %d / 开口边 %d / 多重边 %d），已取消此地块',loose,open,multiple)
+      end
+      expected_volume = Geometry.signed_area(outline)*height
+      actual_volume = body.volume.to_f*INCH_TO_M**3
+      if (actual_volume-expected_volume).abs > [0.001,expected_volume*1.0e-6].max
+        raise ArgumentError, '生成体积与限高包络不一致，已取消此地块'
+      end
+      body
     end
 
     def generate(inputs)
@@ -198,10 +220,11 @@ module MattWu
           floor_height = numeric(input['floor_height'],true)
           setbacks = input.fetch('setbacks').map { |v| numeric(v) }
           cells = Geometry.inset(source[:points],setbacks)
+          outlines = Geometry.boundaries(cells)
           name = input['name'].to_s.strip[0,100]
           name = source[:name] if name.empty?
           { source: source, height: height, floor_height: floor_height,
-            cells: cells, setbacks: setbacks, name: name }
+            cells: cells, outlines: outlines, setbacks: setbacks, name: name }
         rescue => error
           messages << source[:name] + '：失败 · ' + error.message
           nil
@@ -221,25 +244,24 @@ module MattWu
           end
           group = @model.entities.add_group
           group.name = data[:name] + ' · 可建包络'
+          origin = data[:source][:origin]
+          group.transformation = Geom::Transformation.translation(origin.map { |v| v/INCH_TO_M })
           group.set_attribute(DICTIONARY,'generated',true)
           footprint = group.entities.add_group
           footprint.name = '可建范围（隐藏，展开组可显示）'
-          merged_faces(footprint,data[:cells],data[:source][:origin])
+          data[:outlines].each { |outline| add_outline(footprint.entities,outline) }
           footprint.hidden = true
           volume = group.entities.add_group
           volume.name = '限高体量'
-          faces = merged_faces(volume,data[:cells],data[:source][:origin])
-          faces.each { |face| face.pushpull(data[:height]/INCH_TO_M) }
-          raise ArgumentError, '生成结果不是闭合实体，已取消此地块' unless volume.manifold?
+          data[:outlines].each_with_index { |outline,i| build_prism(volume,outline,data[:height],i+1) }
           volume.material = Sketchup::Color.new(92,160,176)
           floors = (data[:height]/data[:floor_height] + 1.0e-9).floor
           gfa = area*floors
           label = format("%s\n可建占地：%.2f ㎡\n限高：%.2f m · %d 层\n满铺估算建筑面积：%.2f ㎡\n层高：%.2f m · 圆角保守退线",
             data[:name],area,data[:height],floors,gfa,data[:floor_height])
-          origin = data[:source][:origin]
-          anchor = Geom::Point3d.new(origin[0]/INCH_TO_M,origin[1]/INCH_TO_M,(origin[2]+data[:height])/INCH_TO_M)
+          anchor = Geom::Point3d.new(0,0,data[:height]/INCH_TO_M)
           group.entities.add_text(label,anchor)
-          group.set_attribute(DICTIONARY,'parameters',JSON.generate(data.reject { |key,_| [:cells,:source].include?(key) }))
+          group.set_attribute(DICTIONARY,'parameters',JSON.generate(data.reject { |key,_| [:cells,:source,:outlines].include?(key) }))
           group.set_attribute(DICTIONARY,'footprint_m2',area)
           group.set_attribute(DICTIONARY,'estimated_gfa_m2',gfa)
           messages << format('%s：成功 · 占地 %.2f ㎡ · 估算建筑面积 %.2f ㎡',data[:name],area,gfa)

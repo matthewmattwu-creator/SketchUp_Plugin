@@ -176,6 +176,117 @@ module MattWu
         cells
       end
 
+      # Recover the union outline before handing geometry to SketchUp.
+      # Cell partitions contain T-junctions and short internal edges; they are
+      # computational pieces, not faces that should be extruded independently.
+      def boundaries(cells)
+        return [] if cells.empty?
+        tolerance = 1.0e-6
+        vertices, buckets = [], Hash.new { |h,k| h[k] = [] }
+        intern = lambda do |p|
+          bucket = p.map { |v| (v/tolerance).floor }
+          found = nil
+          (-1..1).each do |dx|
+            (-1..1).each do |dy|
+              found ||= buckets[[bucket[0]+dx,bucket[1]+dy]].find { |id| distance(vertices[id],p) <= tolerance }
+            end
+          end
+          unless found
+            found = vertices.length
+            vertices << p
+            buckets[bucket] << found
+          end
+          found
+        end
+        polygons = cells.map do |cell|
+          oriented = signed_area(cell) < 0 ? cell.reverse : cell
+          oriented.map { |p| intern.call(p) }
+        end
+        raise ArgumentError, '边界过于复杂，请简化地块或分批生成' if vertices.length > 4000
+        counts = Hash.new(0)
+        polygons.each do |polygon|
+          polygon.each_index do |i|
+            a_id,b_id = polygon[i],polygon[(i+1)%polygon.length]
+            next if a_id == b_id
+            a,b = vertices[a_id],vertices[b_id]
+            dx,dy = b[0]-a[0],b[1]-a[1]
+            length = distance(a,b)
+            on_line = []
+            vertices.each_with_index do |p,id|
+              next if p[0] < [a[0],b[0]].min-tolerance || p[0] > [a[0],b[0]].max+tolerance
+              next if p[1] < [a[1],b[1]].min-tolerance || p[1] > [a[1],b[1]].max+tolerance
+              t = ((p[0]-a[0])*dx+(p[1]-a[1])*dy)/(length*length)
+              next if t < -tolerance/length || t > 1+tolerance/length
+              next if cross(a,b,p).abs/length > tolerance
+              on_line << [t,id]
+            end
+            on_line.sort_by(&:first).each_cons(2) do |first,last|
+              u,v = first[1],last[1]
+              next if u == v
+              key = [u,v].sort
+              counts[key] += u < v ? 1 : -1
+            end
+          end
+        end
+        outgoing, incoming = {}, Hash.new(0)
+        counts.each do |key,count|
+          next if count == 0
+          raise ArgumentError, '范围分片存在重叠边，已取消生成' unless count.abs == 1
+          a,b = count > 0 ? key : key.reverse
+          raise ArgumentError, '范围在点位相接，请微调退线后重试' if outgoing.key?(a)
+          outgoing[a] = b
+          incoming[b] += 1
+        end
+        raise ArgumentError, '可建范围边界不闭合' unless outgoing.keys.all? { |id| incoming[id] == 1 }
+        loops = []
+        until outgoing.empty?
+          start = outgoing.keys.first
+          current, loop_points = start, []
+          loop do
+            loop_points << vertices[current]
+            following = outgoing.delete(current)
+            raise ArgumentError, '可建范围存在断开的边界' unless following
+            current = following
+            break if current == start
+          end
+          loop_points = simplify_outline(loop_points,tolerance)
+          raise ArgumentError, '可建范围存在内孔，暂不支持该结果' if signed_area(loop_points) < 0
+          raise ArgumentError, '可建范围过小或有退化边' if loop_points.length < 3
+          loops << loop_points
+        end
+        expected = area(cells)
+        actual = area(loops)
+        raise ArgumentError, '轮廓重建面积不一致' if (actual-expected).abs > [0.001,expected*1.0e-6].max
+        loops
+      end
+
+      def simplify_outline(poly,tolerance = 1.0e-6)
+        work = poly.dup
+        loop do
+          index = work.each_index.find do |i|
+            a,b,c = work[(i-1)%work.length],work[i],work[(i+1)%work.length]
+            length = distance(a,c)
+            next false if length <= tolerance
+            t = ((b[0]-a[0])*(c[0]-a[0])+(b[1]-a[1])*(c[1]-a[1]))/(length*length)
+            t >= 0 && t <= 1 && cross(a,c,b).abs/length <= tolerance
+          end
+          break unless index && work.length > 3
+          work.delete_at(index)
+        end
+        work
+      end
+
+      # Explicitly capped prism. Mesh indices are tested for two faces per edge.
+      def prism(poly,height)
+        raise ArgumentError, '体量高度必须大于零' unless height.finite? && height > 0
+        raise ArgumentError, '体量轮廓须逆时针' unless poly.length >= 3 && signed_area(poly) > AREA_EPS
+        n = poly.length
+        points = poly.map { |p| [p[0],p[1],0.0] } + poly.map { |p| [p[0],p[1],height] }
+        faces = [(0...n).to_a.reverse,(n...2*n).to_a]
+        n.times { |i| j = (i+1)%n; faces << [i,j,j+n,i+n] }
+        { points: points, faces: faces }
+      end
+
       def area(cells)
         cells.sum { |cell| signed_area(cell).abs }
       end
