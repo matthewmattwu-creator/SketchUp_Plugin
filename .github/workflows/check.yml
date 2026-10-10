@@ -1,0 +1,35 @@
+name: Geometry checks and RBZ
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  geometry:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ruby: ['2.7', '3.2']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+      - name: Check Ruby syntax
+        run: find src test -name '*.rb' -print0 | xargs -0 -n1 ruby -c
+      - name: Test geometry
+        run: ruby test/geometry_test.rb
+  package:
+    needs: geometry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: buildable-envelope-rbz
+          path: dist/*.rbz

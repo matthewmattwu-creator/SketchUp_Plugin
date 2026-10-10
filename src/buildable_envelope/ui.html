@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>可建体量快速生成</title><style>
+*{box-sizing:border-box}body{margin:0;font:14px "Microsoft YaHei",sans-serif;background:#f4f6f8;color:#21343b}
+header{background:#143944;color:white;padding:22px 28px}h1{font-size:23px;margin:0 0 8px}header p{margin:0;color:#bcd3d9}
+main{padding:20px 28px}button{border:0;border-radius:6px;background:#166b7c;color:white;padding:11px 16px;cursor:pointer}
+button.secondary{background:#e0eaed;color:#214b57}input,select{border:1px solid #cbd6da;border-radius:5px;padding:8px;background:white;width:100%}
+label{display:block;font-size:12px;color:#52696f;margin-bottom:5px}.toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap}.field{width:130px}
+.card{background:white;border:1px solid #dbe3e7;border-radius:10px;padding:20px;margin:16px 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}.parameters{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.name{grid-column:1/-1}svg{width:100%;height:310px;background:#f4f8f9;border-radius:6px}table{width:100%;border-collapse:collapse;margin-top:12px}
+th,td{padding:7px;text-align:left;border-bottom:1px solid #e3eaed}th{font-size:12px;color:#52696f}
+.scroll{max-height:240px;overflow:auto}.note{font-size:12px;color:#657b82;line-height:1.8}.bottom{display:flex;gap:15px;align-items:center}
+pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8eff2;padding:14px;border-radius:7px;max-height:230px;overflow:auto}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+</style></head><body>
+<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.1.0 预览版</p></header>
+<main>
+<div class="toolbar"><button class="secondary" id="reload">重新读取当前选择</button>
+<div class="field"><label>统一退线（米）</label><input id="defaultSetback" type="number" min="0" step="0.1" value="5"></div>
+<div class="field"><label>统一限高（米）</label><input id="defaultHeight" type="number" min="0.001" step="0.1" value="36"></div>
+<div class="field"><label>统一层高（米）</label><input id="defaultFloor" type="number" min="0.001" step="0.1" value="3.6"></div>
+<button id="apply">应用到全部地块</button></div>
+<div class="card"><label>选择地块查看和修改（生成时处理全部列表地块）</label><select id="selector"></select>
+<div class="grid" style="margin-top:18px"><div><svg id="preview" viewBox="0 0 440 310" aria-label="边界与边号预览"></svg>
+<p class="note">预览仅显示原红线，顶部为模型 +Y；每条边中点标注对应边号。修改后点击批量生成。</p></div>
+<div><div class="parameters"><div class="name"><label>地块名称</label><input id="name"></div>
+<div><label>限高（米，自红线标高向上）</label><input id="height" type="number" min="0.001" step="0.1"></div>
+<div><label>层高（米，完整层数向下取整）</label><input id="floor_height" type="number" min="0.001" step="0.1"></div></div>
+<div class="scroll"><table><thead><tr><th>红线边号</th><th>退线（米）</th><th>边长（米）</th></tr></thead><tbody id="edges"></tbody></table></div></div></div></div>
+<p class="note">采用到每条原始边段的最短距离退线，转角采用 64 边外包圆近似，结果偏保守。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
+<div class="bottom"><button id="generate">批量生成可建体量</button><span id="count">等待读取…</span></div>
+<pre id="status" role="status">请选择水平地块面或闭合线。CAD 请先导入 SketchUp。</pre>
+</main><script>
+'use strict';
+let parcels=[],active=0,busy=false;
+const el=id=>document.getElementById(id);
+function report(message){el('status').textContent=message;busy=false;el('generate').disabled=false;}
+function receive(data){
+ parcels=data.parcels;active=0;el('selector').replaceChildren();
+ parcels.forEach((p,i)=>{const option=document.createElement('option');option.value=i;option.textContent=p.name;el('selector').appendChild(option);});
+ el('count').textContent=parcels.length+' 个有效地块';
+ report(data.errors.length?'输入检查：\n'+data.errors.join('\n'):'读取完成。可设置逐边退线，再批量生成。');render();
+}
+function svgNode(name,attrs,text){const n=document.createElementNS('http://www.w3.org/2000/svg',name);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!==undefined)n.textContent=text;el('preview').appendChild(n);return n;}
+function render(){
+ const p=parcels[active];if(!p)return;
+ ['name','height','floor_height'].forEach(k=>el(k).value=p[k]);el('edges').replaceChildren();el('preview').replaceChildren();
+ const xs=p.points.map(v=>v[0]),ys=p.points.map(v=>v[1]);
+ const xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
+ const s=Math.min(340/Math.max(xmax-xmin,0.001),210/Math.max(ymax-ymin,0.001));
+ const xy=v=>[220+(v[0]-(xmin+xmax)/2)*s,155-(v[1]-(ymin+ymax)/2)*s];
+ svgNode('polygon',{points:p.points.map(v=>xy(v).join(',')).join(' '),fill:'#d9edef',stroke:'#166b7c','stroke-width':2});
+ p.points.forEach((a,i)=>{
+   const b=p.points[(i+1)%p.points.length],m=xy([(a[0]+b[0])/2,(a[1]+b[1])/2]);
+   svgNode('circle',{cx:m[0],cy:m[1],r:12,fill:'#143944'});
+   svgNode('text',{x:m[0],y:m[1]+4,fill:'white','font-size':11,'text-anchor':'middle'},i+1);
+   const tr=document.createElement('tr'),number=document.createElement('td'),field=document.createElement('td'),length=document.createElement('td'),input=document.createElement('input');
+   number.textContent='边 '+(i+1);input.type='number';input.min=0;input.step=0.1;input.value=p.setbacks[i];input.setAttribute('aria-label','边 '+(i+1)+' 退线');
+   input.addEventListener('input',()=>p.setbacks[i]=input.value);field.appendChild(input);length.textContent=Math.hypot(b[0]-a[0],b[1]-a[1]).toFixed(2);
+   tr.append(number,field,length);el('edges').appendChild(tr);
+ });
+}
+['name','height','floor_height'].forEach(k=>el(k).addEventListener('input',()=>{if(parcels[active])parcels[active][k]=el(k).value;}));
+el('selector').addEventListener('change',()=>{active=Number(el('selector').value);render();});
+el('reload').addEventListener('click',()=>{if(!busy)sketchup.reload();});
+el('apply').addEventListener('click',()=>{
+ const d=Number(el('defaultSetback').value),h=Number(el('defaultHeight').value),f=Number(el('defaultFloor').value);
+ if(!Number.isFinite(d)||!Number.isFinite(h)||!Number.isFinite(f)||d<0||h<=0||f<=0){report('请输入有效退线、限高和层高。');return;}
+ parcels.forEach(p=>{p.setbacks=p.setbacks.map(()=>d);p.height=h;p.floor_height=f;});render();
+});
+el('generate').addEventListener('click',()=>{
+ if(busy||!parcels.length)return;
+ if(parcels.some(p=>String(p.height).trim()===''||String(p.floor_height).trim()===''||p.setbacks.some(v=>String(v).trim()===''))){report('参数不能为空。');return;}
+ busy=true;el('generate').disabled=true;el('status').textContent='正在计算与生成，请稍候…';
+ sketchup.generate(JSON.stringify(parcels.map(p=>({id:p.id,name:p.name,height:p.height,floor_height:p.floor_height,setbacks:p.setbacks}))));
+});
+document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
+</script></body></html>
