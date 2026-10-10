@@ -2,13 +2,13 @@
 
 面向 **SketchUp 2023 及以上桌面版**的 Ruby 扩展。仓库初始描述：sketchup小插件_体量生成。
 
-当前版本 **0.1.1 预览版**：逐边退线、限高包络、可建占地和满铺楼层建筑面积估算、多地块批量处理。日照模块尚未实现。几何自动测试与 RBZ 打包由 GitHub Actions 执行；SketchUp 内操作验收需要在实际桌面环境完成。
+当前版本 **0.1.2 预览版**：逐边退线、限高包络、可建占地和满铺楼层建筑面积估算、多地块批量处理。日照模块尚未实现。几何自动测试与 RBZ 打包由 GitHub Actions 执行；SketchUp 内操作验收需要在实际桌面环境完成。
 
 ## 获取安装包
 
 1. 打开仓库 **Actions → Geometry checks and RBZ**。
 2. 选择开发分支最新一次成功运行，在 Artifacts 下载 `buildable-envelope-rbz`。
-3. 解压下载的 ZIP，取得 `buildable-envelope-0.1.1.rbz`。
+3. 解压下载的 ZIP，取得 `buildable-envelope-0.1.2.rbz`。
 4. SketchUp **扩展程序管理器 → 安装扩展程序**，选择该 RBZ。
 5. 菜单 **扩展程序 → 可建体量快速生成…**。
 
@@ -81,3 +81,9 @@ scripts/package.py                   RBZ 打包
 ## 0.1.1 修复
 
 先从计算分片重建并简化外轮廓，再为每个分离区域建立独立体量。底面、顶面、侧面显式封闭，不再逐片创建、合并后拉伸。增加边的双面连接检查、闭合实体及体积核对。输出组采用局部坐标，减少 CAD 大坐标误差。仍需在 SketchUp 桌面实际复测。
+
+## 0.1.2 接口兼容修复
+
+目标版本明确为 SketchUp 2023、2024、2025、2026 桌面版。闭合检查通过实际接口能力探测：在定义对象提供 manifold? 时使用定义接口，否则使用组对象的 manifold?，兼容 2023 至 2026.1。定义接口仅从 2026.2 起提供，不能直接按年份假定它存在。
+
+依据：[ComponentDefinition API](https://ruby.sketchup.com/Sketchup/ComponentDefinition.html#manifold%3F-instance_method)、[Group API](https://ruby.sketchup.com/Sketchup/Group.html#manifold%3F-instance_method)。自动测试包含旧/新接口模拟回归，不代表已在各版 SketchUp 桌面实际验收。

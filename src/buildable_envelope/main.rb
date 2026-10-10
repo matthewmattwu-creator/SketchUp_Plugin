@@ -2,6 +2,7 @@
 require 'sketchup.rb'
 require 'json'
 require_relative 'geometry'
+require_relative 'solid_check'
 module MattWu
   module BuildableEnvelope
     extend self
@@ -198,7 +199,7 @@ module MattWu
       loose = edges.count { |e| e.faces.empty? }
       open = edges.count { |e| e.faces.length == 1 }
       multiple = edges.count { |e| e.faces.length > 2 }
-      unless loose == 0 && open == 0 && multiple == 0 && body.definition.manifold?
+      unless loose == 0 && open == 0 && multiple == 0 && SolidCheck.closed?(body)
         raise ArgumentError, format('体量闭合检查失败（游离边 %d / 开口边 %d / 多重边 %d），已取消此地块',loose,open,multiple)
       end
       expected_volume = Geometry.signed_area(outline)*height
