@@ -207,8 +207,11 @@ module MattWu
       raise ArgumentError, '退线数量必须与原红线边数一致' unless setbacks.length == source[:points].length
       result = input['offset_result']
       if result
-        raise ArgumentError, '快速偏移仅支持统一退距' unless setbacks.all? { |d| d == setbacks.first }
-        raise ArgumentError, '偏移计算方式无效' unless result['method'] == 'parallel-miter'
+        method = result['method']
+        raise ArgumentError, '偏移计算方式无效' unless ['parallel-miter','segment-clearance'].include?(method)
+        if method == 'parallel-miter' && !setbacks.all? { |d| d == setbacks.first }
+          raise ArgumentError, '统一退距结果与逐边参数不符'
+        end
         outlines = result['outlines']
         unless outlines.is_a?(Array) && outlines.length <= 5000 &&
           outlines.all? { |ring| ring.is_a?(Array) && ring.length >= 3 && ring.length <= 10000 &&
@@ -217,15 +220,10 @@ module MattWu
         end
         outlines.each { |ring| raise ArgumentError, '偏移结果方向无效' unless Geometry.signed_area(ring) > Geometry::AREA_EPS }
         Boundary.verify_outlines!(outlines,source[:points],setbacks)
-        [outlines,'尖角平行偏移']
+        [outlines,method == 'parallel-miter' ? '尖角平行偏移' : '逐组最短退距圆角']
       else
         raise ArgumentError, input['offset_error'].to_s if input['offset_error']
-        # Existing variable-edge semantics remain explicit until a weighted
-        # polygon engine is available. Never silently use a different distance.
-        cells = Geometry.inset(source[:points],setbacks)
-        outlines = Geometry.boundaries(cells)
-        Boundary.verify_outlines!(outlines,source[:points],setbacks)
-        [outlines,'逐边圆角保守退线']
+        raise ArgumentError, '缺少本地偏移结果，请关闭插件并重新读取'
       end
     end
 
@@ -240,12 +238,17 @@ module MattWu
           floor_height = numeric(input['floor_height'],true)
           setbacks = input.fetch('setbacks').map { |v| numeric(v) }
           raise ArgumentError, '已识别内孔；当前体量算法尚不支持内孔，已跳过，避免填满内孔' unless source[:holes].empty?
+          edge_labels = input['edge_labels'] || Array.new(source[:points].length,'未标注')
+          unless edge_labels.is_a?(Array) && edge_labels.length == source[:points].length &&
+            edge_labels.all? { |label| ['未标注','道路侧','邻地侧','其他'].include?(label) }
+            raise ArgumentError, '边界用途标记与原边不匹配'
+          end
           outlines,method = prepared_outlines(source,setbacks,input)
           cells = outlines
           name = input['name'].to_s.strip[0,100]
           name = source[:name] if name.empty?
           { source: source, height: height, floor_height: floor_height,
-            cells: cells, outlines: outlines, setbacks: setbacks, name: name, method: method }
+            cells: cells, outlines: outlines, setbacks: setbacks, name: name, method: method, edge_labels: edge_labels }
         rescue => error
           messages << source[:name] + '：失败 · ' + error.message
           nil

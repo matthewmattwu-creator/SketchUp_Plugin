@@ -8,7 +8,7 @@ class OffsetFixtureTest < Minitest::Test
     path = File.expand_path('../tmp/offset-fixtures.json',__dir__)
     skip 'Run node test/offset_engine_test.js first for cross-language verification' unless File.file?(path)
     fixtures=JSON.parse(File.read(path))
-    assert_equal 9,fixtures.length
+    assert_equal 18,fixtures.length
     fixtures.each do |item|
       begin
         assert B.verify_outlines!(item['outlines'],item['points'],item['setbacks']),item['name']

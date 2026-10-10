@@ -90,3 +90,22 @@ class UniformOffsetIntegrationTest < Minitest::Test
     assert_empty outlines
   end
 end
+
+class VariableOffsetIntegrationTest < Minitest::Test
+  P = MattWu::BuildableEnvelope
+  def source; {points:[[0.0,0.0],[20.0,0.0],[20.0,10.0],[0.0,10.0]]}; end
+  def input(outline)
+    {'offset_result'=>{'outlines'=>[outline],'method'=>'segment-clearance'}}
+  end
+  def test_accepts_each_sides_own_clearance
+    outlines,method=P.prepared_outlines(source,[2,4,3,1],input([[1.0001,2.0001],[15.9999,2.0001],[15.9999,6.9999],[1.0001,6.9999]]))
+    assert_equal '逐组最短退距圆角',method
+    assert_in_delta 75,MattWu::BuildableEnvelope::Geometry.area(outlines),0.01
+  end
+  def test_rejects_sides_mapped_to_wrong_distances
+    assert_raises(ArgumentError){P.prepared_outlines(source,[4,2,3,1],input([[1.0001,2.0001],[15.9999,2.0001],[15.9999,6.9999],[1.0001,6.9999]]))}
+  end
+  def test_no_legacy_cell_fragmentation_fallback_when_result_missing
+    assert_raises(ArgumentError){P.prepared_outlines(source,[2,4,3,1],{})}
+  end
+end

@@ -14,7 +14,7 @@ th,td{padding:7px;text-align:left;border-bottom:1px solid #e3eaed}th{font-size:1
 pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8eff2;padding:14px;border-radius:7px;max-height:230px;overflow:auto}
 @media(max-width:700px){.grid{grid-template-columns:1fr}}
 </style></head><body>
-<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.2.2 边界识别预览版</p></header>
+<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.2.3 边界识别预览版</p></header>
 <main>
 <div class="toolbar"><button class="secondary" id="reload">重新读取当前选择</button>
 <div class="field"><label>统一退线（米）</label><input id="defaultSetback" type="number" min="0" step="0.1" value="5"></div>
@@ -32,7 +32,7 @@ pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8ef
 <button class="secondary" id="regroup">重新自动分组</button><button class="secondary" id="mergeGroups">合并所选相邻组</button><button class="secondary" id="splitGroups">所选拆为单边</button></div>
 <p class="note" id="groupInfo"></p>
 <div class="scroll"><table><thead><tr><th>边段 / 原边范围</th><th>退线（米）</th><th>边长（米）</th></tr></thead><tbody id="edges"></tbody></table></div></div></div></div>
-<p class="note">统一退距采用完整原红线的尖角平行偏移，自动处理凹角和分裂区域；逐边不同退距仍采用原保守圆角算法。结果均检查原边段退距及越界；带内孔地块暂不生成。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
+<p class="note">统一退距采用完整原红线的尖角平行偏移，自动处理凹角和分裂区域；各组不同退距按每条原边的最短距离约束生成，交界采用圆弧过渡（数值近似最多约 0.1 mm 向内保守）。道路侧、邻地侧标记由你选择，退距按项目要求填写。结果均检查原边段退距及越界；带内孔地块暂不生成。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
 <div class="bottom"><button id="generate">批量生成可建体量</button><span id="count">等待读取…</span></div>
 <pre id="status" role="status">请选择水平地块面或闭合线。CAD 请先导入 SketchUp。</pre>
 </main><script src="vendor/clipper.js"></script><script src="offset_engine.js"></script><script src="setback_groups.js"></script><script>
@@ -42,7 +42,7 @@ const el=id=>document.getElementById(id);
 function report(message){el('status').textContent=message;busy=false;el('generate').disabled=false;}
 function receive(data){
  parcels=data.parcels;active=0;el('selector').replaceChildren();
- parcels.forEach((p,i)=>{p.groups=SetbackGroups.auto(p.points,p.setbacks);p.viewMode='groups';p.selectedGroups=new Set();const option=document.createElement('option');option.value=i;option.textContent=p.name;el('selector').appendChild(option);});
+ parcels.forEach((p,i)=>{p.edgeLabels=p.points.map(()=>'未标注');p.groups=SetbackGroups.auto(p.points,p.setbacks,25,p.edgeLabels);p.viewMode='groups';p.selectedGroups=new Set();const option=document.createElement('option');option.value=i;option.textContent=p.name;el('selector').appendChild(option);});
  el('count').textContent=parcels.length+' 个有效地块';
  report(data.errors.length?'输入检查：\n'+data.errors.join('\n'):'读取完成。已自动归并退线输入项；请核对边段分组，再设置退距。');render();
 }
@@ -84,13 +84,18 @@ function render(){
    title.textContent=p.viewMode==='edges'?'边 '+(ids[0]+1):'组 '+(index+1);title.style.color=stroke;
    range.className='range';range.textContent=ids.length===1?'原边 '+(ids[0]+1):'原边 '+(ids[0]+1)+' → '+(ids[ids.length-1]+1)+' · '+ids.length+' 条';range.title=ids.map(i=>i+1).join(', ');
    number.append(check,title,range);
+   const usage=document.createElement('select'),firstLabel=p.edgeLabels[ids[0]],mixedLabel=ids.some(i=>p.edgeLabels[i]!==firstLabel);
+   ['未标注','道路侧','邻地侧','其他','多类型'].forEach(text=>{const option=document.createElement('option');option.value=text;option.textContent=text;usage.appendChild(option);});
+   usage.value=mixedLabel?'多类型':firstLabel;usage.setAttribute('aria-label',title.textContent+' 边界用途');
+   usage.addEventListener('change',()=>{if(usage.value!=='多类型')ids.forEach(i=>p.edgeLabels[i]=usage.value);});
+   number.appendChild(usage);
    input.type='number';input.min=0;input.step=0.1;const value=SetbackGroups.value(group,p.setbacks);input.value=value===null?'':value;input.placeholder=value===null?'多值':'';input.setAttribute('aria-label',title.textContent+' 退线');
    input.addEventListener('input',()=>SetbackGroups.assign(group,p.setbacks,input.value));
    field.appendChild(input);length.textContent=total.toFixed(2);tr.append(number,field,length);el('edges').appendChild(tr);
  });
 }
 el('viewMode').addEventListener('change',()=>{const p=parcels[active];if(!p||busy)return;p.viewMode=el('viewMode').value;p.selectedGroups.clear();render();});
-el('regroup').addEventListener('click',()=>{const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.auto(p.points,p.setbacks,Number(el('groupStrength').value));p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
+el('regroup').addEventListener('click',()=>{const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.auto(p.points,p.setbacks,Number(el('groupStrength').value),p.edgeLabels);p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
 el('mergeGroups').addEventListener('click',()=>{const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.merge(visibleGroups(p),[...p.selectedGroups],p.points.length);p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
 el('splitGroups').addEventListener('click',()=>{const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.split(visibleGroups(p),[...p.selectedGroups],p.points.length);p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
 ['name','height','floor_height'].forEach(k=>el(k).addEventListener('input',()=>{if(parcels[active])parcels[active][k]=el(k).value;}));
@@ -108,9 +113,9 @@ el('generate').addEventListener('click',()=>{
  // Yield to the browser so the status is painted before local geometry work.
  setTimeout(()=>{
   const inputs=parcels.map(p=>{
-   const input={id:p.id,name:p.name,height:p.height,floor_height:p.floor_height,setbacks:p.setbacks};
+   const input={id:p.id,name:p.name,height:p.height,floor_height:p.floor_height,setbacks:p.setbacks,edge_labels:p.edgeLabels};
    const distances=p.setbacks.map(Number);
-   if(!(p.holes||[]).length && distances.every(d=>d===distances[0])){
+   if(!(p.holes||[]).length){
     try{input.offset_result=BuildableOffset.solve(p.points,distances);}
     catch(error){input.offset_error=error.message;}
    }

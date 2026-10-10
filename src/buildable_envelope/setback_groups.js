@@ -13,7 +13,7 @@ function validate(groups,n){
   ids.some((e,i)=>ids[(i+1)%n]!==((e+1)%n)))throw Error('边段分组不连续或存在漏边、重复边');
  return groups;
 }
-function auto(points,setbacks,maxTurn=25){
+function auto(points,setbacks,maxTurn=25,labels=null){
  const n=points.length;
  if(n<3||setbacks.length!==n||!Number.isFinite(maxTurn)||maxTurn<1||maxTurn>60)throw Error('分组参数无效');
  const turns=points.map((_,i)=>turn(points,i)),cuts=[];
@@ -22,7 +22,7 @@ function auto(points,setbacks,maxTurn=25){
   const p=(i+n-1)%n,t=turns[i],previous=turns[p];
   const sharp=Math.abs(t)>maxTurn;
   const transition=Math.abs(previous)<=maxTurn&&!sharp&&type(t)!==type(previous);
-  if(sharp||transition||!same(setbacks[p],setbacks[i]))cuts.push(i);
+  if(sharp||transition||!same(setbacks[p],setbacks[i])||(labels&&labels[p]!==labels[i]))cuts.push(i);
  }
  if(!cuts.length)cuts.push(0);
  const groups=cuts.map((start,i)=>{

@@ -26,7 +26,23 @@ solve('2190 segment synthetic spiral',spiral,5,1);
 assert.equal(JSON.stringify(spiral),copy,'source not mutated');checks++;
 const rotated=rect.map(([x,y])=>[x*Math.cos(.43)-y*Math.sin(.43),x*Math.sin(.43)+y*Math.cos(.43)]);
 solve('rotated rectangle',rotated,2,1,96);
-assert.throws(()=>E.solve(rect,[2,3,2,2]),/统一/);checks++;
+function weighted(name,points,setbacks,expectedRegions,expectedArea){
+ const result=E.solve(points,setbacks);
+ assert.equal(result.method,'segment-clearance');checks++;
+ assert.equal(result.outlines.length,expectedRegions,name+' regions');checks++;
+ if(expectedArea!==undefined){assert.ok(Math.abs(result.outlines.reduce((s,p)=>s+E.area(p),0)-expectedArea)<0.01,name+' area');checks++;}
+ fixtures.push({name,points,setbacks,outlines:result.outlines});
+ return result;
+}
+weighted('road 4 neighbor 1 rectangle',rect,[2,4,3,1],1,75);
+weighted('reversed weighted rectangle',rect.slice().reverse(),[3,4,2,1],1,75);
+weighted('2400 segments unequal sides',dense,dense.map((_,i)=>[2,4,3,1][Math.floor(i/600)]),1,75);
+weighted('2190 segment road 8 neighbor 3 spiral',spiral,spiral.map((_,i)=>i<1095?8:3),1);
+weighted('weighted concave L',[[0,0],[20,0],[20,10],[10,10],[10,20],[0,20]],[2,4,3,1,2,1],1);
+weighted('zero clearance sides',rect,[0,4,0,1],1,150);
+weighted('collinear distance transition',[[0,0],[10,0],[20,0],[20,10],[0,10]],[2,5,2,2,2],1);
+weighted('weighted excessive clearance',rect,[50,40,50,40],0,0);
+weighted('weighted narrow neck split',[[0,0],[10,0],[10,4],[20,4],[20,0],[30,0],[30,10],[20,10],[20,6],[10,6],[10,10],[0,10]],[1,1,2,1,3,3,3,3,1,2,1,1],2);
 assert.throws(()=>E.solve(rect,[NaN,NaN,NaN,NaN]),/无效/);checks++;
 assert.throws(()=>E.solve([[0,0],[1e-8,0],[1,1]],[1,1,1]),/精度/);checks++;
 const html=fs.readFileSync(path.join(__dirname,'../src/buildable_envelope/ui.html'),'utf8');
