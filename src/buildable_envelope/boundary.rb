@@ -16,7 +16,7 @@ module MattWu
           a,b = poly[i],poly[(i+1)%poly.length]
           return true if Geometry.on_segment?(p,a,b)
           if (a[1]>p[1]) != (b[1]>p[1])
-            hit = !hit if p[0] < a[0]+(p[1]-a[1])*(b[0]-a[0])/(b[1]-a[1])
+            hit = !hit if p[0] < a[0]+(p[1]-a[1])*(b[0]-a[0])/(b[1]-a[1]).to_f
           end
         end
         hit

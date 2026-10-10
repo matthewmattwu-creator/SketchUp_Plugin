@@ -170,7 +170,7 @@ module MattWu
 
       def segment_distance(p,a,b)
         dx,dy = b[0]-a[0],b[1]-a[1]
-        length2 = dx*dx+dy*dy
+        length2 = (dx*dx+dy*dy).to_f
         return distance(p,a) if length2 <= EPS*EPS
         t = [[((p[0]-a[0])*dx+(p[1]-a[1])*dy)/length2,0.0].max,1.0].min
         Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)

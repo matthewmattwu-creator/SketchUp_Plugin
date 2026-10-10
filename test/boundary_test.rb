@@ -81,6 +81,11 @@ class BoundaryTest < Minitest::Test
     assert_raises(ArgumentError) { B.verify_outlines!([[[1,1],[9,1],[9,9],[1,9]]],poly,[2]*4) }
     assert_raises(ArgumentError) { B.verify_outlines!([[[-1,2],[8,2],[8,8],[-1,8]]],poly,[0]*4) }
   end
+  def test_integer_coordinate_diagonal_projection_keeps_precision
+    assert_in_delta Math.sqrt(2),G.segment_distance([3,1],[0,0],[4,4]),1e-10
+    assert B.point_inside?([8,1],[[0,0],[10,0],[0,10]])
+    refute B.point_inside?([9,2],[[0,0],[10,0],[0,10]])
+  end
   def test_segment_cannot_bridge_notch_by_touching_its_vertices
     poly = [[0,0],[10,0],[10,10],[2,10],[2,4],[1,4],[1,10],[0,10]]
     assert_raises(ArgumentError) { B.verify_outlines!([[[0,0],[10,0],[10,10],[0,10]]],poly,[0]*8) }
