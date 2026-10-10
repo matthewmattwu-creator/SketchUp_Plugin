@@ -72,7 +72,8 @@ module MattWu
           holes = built.each_index.select { |j| parents[j] == i }.map do |j|
             canonical(polys[j].map { |p| [p[0]+anchor[0]-b[:origin][0],p[1]+anchor[1]-b[:origin][1]] })
           end
-          b.merge(holes: holes.sort_by(&:first), area: Geometry.signed_area(b[:points]).abs -
+          b.merge(source_rings: [loops[i]] + built.each_index.select { |j| parents[j] == i }.map { |j| loops[j] },
+            holes: holes.sort_by(&:first), area: Geometry.signed_area(b[:points]).abs -
             holes.sum { |h| Geometry.signed_area(h).abs })
         end.sort_by { |b| b[:origin] }
       end

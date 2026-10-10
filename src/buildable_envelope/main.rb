@@ -108,7 +108,7 @@ module MattWu
     end
 
     def signature(parcels)
-      parcels.map { |p| [p[:origin],p[:points],p[:holes]] }
+      parcels.map { |p| [p[:origin],p[:points],p[:holes],p[:source_rings] || p[:source_points]] }
     end
 
     def show_dialog
