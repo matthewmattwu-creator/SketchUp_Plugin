@@ -1,0 +1,4 @@
+dist/
+*.skp
+*.skb
+__pycache__/
