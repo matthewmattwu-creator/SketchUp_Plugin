@@ -14,7 +14,7 @@ th,td{padding:7px;text-align:left;border-bottom:1px solid #e3eaed}th{font-size:1
 pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8eff2;padding:14px;border-radius:7px;max-height:230px;overflow:auto}
 @media(max-width:700px){.grid{grid-template-columns:1fr}}
 </style></head><body>
-<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.1.2 预览版</p></header>
+<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.1.3 预览版</p></header>
 <main>
 <div class="toolbar"><button class="secondary" id="reload">重新读取当前选择</button>
 <div class="field"><label>统一退线（米）</label><input id="defaultSetback" type="number" min="0" step="0.1" value="5"></div>
@@ -23,7 +23,7 @@ pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8ef
 <button id="apply">应用到全部地块</button></div>
 <div class="card"><label>选择地块查看和修改（生成时处理全部列表地块）</label><select id="selector"></select>
 <div class="grid" style="margin-top:18px"><div><svg id="preview" viewBox="0 0 440 310" aria-label="边界与边号预览"></svg>
-<p class="note">预览仅显示原红线，顶部为模型 +Y；每条边中点标注对应边号。修改后点击批量生成。</p></div>
+<p class="note">预览显示原红线，顶部为模型 +Y；超过 100 条边时抽样显示边号，表格保留全部边。超过 200 边的计算边界采用 10 mm 简化容差及同额向内裕量；原红线不改变。</p></div>
 <div><div class="parameters"><div class="name"><label>地块名称</label><input id="name"></div>
 <div><label>限高（米，自红线标高向上）</label><input id="height" type="number" min="0.001" step="0.1"></div>
 <div><label>层高（米，完整层数向下取整）</label><input id="floor_height" type="number" min="0.001" step="0.1"></div></div>
@@ -51,10 +51,13 @@ function render(){
  const s=Math.min(340/Math.max(xmax-xmin,0.001),210/Math.max(ymax-ymin,0.001));
  const xy=v=>[220+(v[0]-(xmin+xmax)/2)*s,155-(v[1]-(ymin+ymax)/2)*s];
  svgNode('polygon',{points:p.points.map(v=>xy(v).join(',')).join(' '),fill:'#d9edef',stroke:'#166b7c','stroke-width':2});
+ const labelStep=Math.max(1,Math.ceil(p.points.length/100));
  p.points.forEach((a,i)=>{
    const b=p.points[(i+1)%p.points.length],m=xy([(a[0]+b[0])/2,(a[1]+b[1])/2]);
-   svgNode('circle',{cx:m[0],cy:m[1],r:12,fill:'#143944'});
-   svgNode('text',{x:m[0],y:m[1]+4,fill:'white','font-size':11,'text-anchor':'middle'},i+1);
+   if(i%labelStep===0){
+    svgNode('circle',{cx:m[0],cy:m[1],r:12,fill:'#143944'});
+    svgNode('text',{x:m[0],y:m[1]+4,fill:'white','font-size':11,'text-anchor':'middle'},i+1);
+   }
    const tr=document.createElement('tr'),number=document.createElement('td'),field=document.createElement('td'),length=document.createElement('td'),input=document.createElement('input');
    number.textContent='边 '+(i+1);input.type='number';input.min=0;input.step=0.1;input.value=p.setbacks[i];input.setAttribute('aria-label','边 '+(i+1)+' 退线');
    input.addEventListener('input',()=>p.setbacks[i]=input.value);field.appendChild(input);length.textContent=Math.hypot(b[0]-a[0],b[1]-a[1]).toFixed(2);

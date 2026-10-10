@@ -8,6 +8,9 @@ module MattWu
       AREA_EPS = 1.0e-8
       MAX_CELLS = 5000
       ARC_SEGMENTS = 64
+      MAX_SOURCE_EDGES = 5000
+      SIMPLIFY_THRESHOLD = 200
+      CURVE_TOLERANCE = 0.01
 
       def cross(a, b, c)
         (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
@@ -47,12 +50,18 @@ module MattWu
       def validate(poly)
         raise ArgumentError, '至少需要三条边' if poly.length < 3
         raise ArgumentError, '边界坐标无效' unless poly.flatten.all? { |v| v.is_a?(Numeric) && v.finite? }
-        raise ArgumentError, '地块边数超过 200，请先简化 CAD 边界' if poly.length > 200
+        raise ArgumentError, '地块边数超过 5000，请分段整理 CAD 边界' if poly.length > MAX_SOURCE_EDGES
         n = poly.length
+        bounds = n.times.map do |i|
+          a,b = poly[i],poly[(i+1)%n]
+          [[a[0],b[0]].min,[a[0],b[0]].max,[a[1],b[1]].min,[a[1],b[1]].max]
+        end
         n.times do |i|
           raise ArgumentError, '存在零长度边' if distance(poly[i],poly[(i+1)%n]) <= EPS
           ((i+1)...n).each do |j|
             next if j == i+1 || (i == 0 && j == n-1)
+            bi,bj = bounds[i],bounds[j]
+            next if bi[1] < bj[0]-EPS || bj[1] < bi[0]-EPS || bi[3] < bj[2]-EPS || bj[3] < bi[2]-EPS
             raise ArgumentError, '边界自交或重复接触' if intersects?(poly[i],poly[(i+1)%n],poly[j],poly[(j+1)%n])
           end
         end
@@ -142,10 +151,58 @@ module MattWu
         end
       end
 
+      def segment_distance(p,a,b)
+        dx,dy = b[0]-a[0],b[1]-a[1]
+        length2 = dx*dx+dy*dy
+        return distance(p,a) if length2 <= EPS*EPS
+        t = [[((p[0]-a[0])*dx+(p[1]-a[1])*dy)/length2,0.0].max,1.0].min
+        Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)
+      end
+
+      # Closed-chain RDP. Keep every change in setback, so independently
+      # configured source edges cannot be merged into another edge's setting.
+      def prepare_boundary(poly,setbacks)
+        return [poly,setbacks,0.0] if poly.length <= SIMPLIFY_THRESHOLD
+        n = poly.length
+        anchors = [0]
+        n.times { |i| anchors << i if (setbacks[i]-setbacks[(i-1)%n]).abs > EPS }
+        farthest = (1...n).max_by { |i| distance(poly[0],poly[i]) }
+        anchors << farthest
+        anchors = anchors.uniq.sort
+        kept = anchors.dup
+        anchors.each_with_index do |first,i|
+          last = i+1 < anchors.length ? anchors[i+1] : anchors.first+n
+          stack = [[first,last]]
+          until stack.empty?
+            a_index,b_index = stack.pop
+            next if b_index-a_index <= 1
+            a,b = poly[a_index%n],poly[b_index%n]
+            index = (a_index+1...b_index).max_by { |j| segment_distance(poly[j%n],a,b) }
+            if segment_distance(poly[index%n],a,b) > CURVE_TOLERANCE
+              kept << index%n
+              stack << [a_index,index] << [index,b_index]
+            end
+          end
+        end
+        kept = kept.uniq.sort
+        # Avoid approximate geometry if simplification brings no benefit.
+        return [poly,setbacks,0.0] if kept.length == n || kept.length < 3
+        simplified = kept.map { |i| poly[i] }
+        validate(simplified)
+        distances = kept.each_with_index.map do |first,i|
+          last = i+1 < kept.length ? kept[i+1] : kept.first+n
+          # Each source chain stays within tolerance of its new segment.
+          # Extra inward clearance compensates conservatively for this error.
+          (first...last).map { |j| setbacks[j%n] }.max + CURVE_TOLERANCE
+        end
+        [simplified,distances,CURVE_TOLERANCE]
+      end
+
       def inset(poly, setbacks)
         validate(poly)
         raise ArgumentError, '退线数量必须与边数一致' unless setbacks.length == poly.length
         raise ArgumentError, '退线须为非负有限数值' unless setbacks.all? { |v| v.is_a?(Numeric) && v.finite? && v >= 0 }
+        poly,setbacks,_margin = prepare_boundary(poly,setbacks)
         cells = triangulate(poly)
         cutters = []
         poly.each_index do |i|

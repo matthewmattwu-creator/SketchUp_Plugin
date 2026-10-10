@@ -2,13 +2,13 @@
 
 面向 **SketchUp 2023 及以上桌面版**的 Ruby 扩展。仓库初始描述：sketchup小插件_体量生成。
 
-当前版本 **0.1.2 预览版**：逐边退线、限高包络、可建占地和满铺楼层建筑面积估算、多地块批量处理。日照模块尚未实现。几何自动测试与 RBZ 打包由 GitHub Actions 执行；SketchUp 内操作验收需要在实际桌面环境完成。
+当前版本 **0.1.3 预览版**：逐边退线、限高包络、可建占地和满铺楼层建筑面积估算、多地块批量处理。日照模块尚未实现。几何自动测试与 RBZ 打包由 GitHub Actions 执行；SketchUp 内操作验收需要在实际桌面环境完成。
 
 ## 获取安装包
 
 1. 打开仓库 **Actions → Geometry checks and RBZ**。
 2. 选择开发分支最新一次成功运行，在 Artifacts 下载 `buildable-envelope-rbz`。
-3. 解压下载的 ZIP，取得 `buildable-envelope-0.1.2.rbz`。
+3. 解压下载的 ZIP，取得 `buildable-envelope-0.1.3.rbz`。
 4. SketchUp **扩展程序管理器 → 安装扩展程序**，选择该 RBZ。
 5. 菜单 **扩展程序 → 可建体量快速生成…**。
 
@@ -46,7 +46,7 @@
 
 ## 输入范围和限制
 
-- 单批最多 50 地块，每个地块最多 200 条边；复杂 CAD 应先简化。
+- 单批最多 50 地块，每个地块最多 5000 条边；复杂 CAD 应先简化。
 - 支持直线段构成的无内孔水平多边形。曲线按 SketchUp 已有线段处理，不解析真实 CAD 圆弧。
 - 组内扫描所有面及无面的闭合线。请选择专门的红线组，避免把建筑或其他绘图一起选入。
 - 内孔面、闭合线嵌套/交叠、断线、分叉、自交、倾斜地块会报告错误。
@@ -87,3 +87,7 @@ scripts/package.py                   RBZ 打包
 目标版本明确为 SketchUp 2023、2024、2025、2026 桌面版。闭合检查通过实际接口能力探测：在定义对象提供 manifold? 时使用定义接口，否则使用组对象的 manifold?，兼容 2023 至 2026.1。定义接口仅从 2026.2 起提供，不能直接按年份假定它存在。
 
 依据：[ComponentDefinition API](https://ruby.sketchup.com/Sketchup/ComponentDefinition.html#manifold%3F-instance_method)、[Group API](https://ruby.sketchup.com/Sketchup/Group.html#manifold%3F-instance_method)。自动测试包含旧/新接口模拟回归，不代表已在各版 SketchUp 桌面实际验收。
+
+## 0.1.3 高分段曲线地块
+
+将输入上限提高到 5000 条边，并加速自交检查。超过 200 边时，计算用闭合边界在 10 毫米容差内自动简化；原始 CAD/SketchUp 红线保留，面板仍以原始边号设置距离。退线参数发生变化的顶点强制保留，防止合并不同边的设置。简化后退线附加 10 毫米向内安全裕量，抵消曲线折线近似，故面积是保守估算。无法简化的尖角、逐边密集参数变化仍按原边计算，极端复杂情况会明确拒绝。无需用户重画普通高分段弧线。

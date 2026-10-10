@@ -21,7 +21,7 @@ module MattWu
       poly = points.map { |p| [p[0]-origin[0],p[1]-origin[1]] }
       Geometry.validate(poly)
       { name: name, points: poly, origin: origin, height: 36.0, floor_height: 3.6,
-        setbacks: Array.new(poly.length,5.0) }
+        setbacks: Array.new(poly.length,5.0), high_segment: poly.length > Geometry::SIMPLIFY_THRESHOLD }
     end
 
     def edge_cycles(edges, transformation, name)
@@ -220,6 +220,9 @@ module MattWu
           height = numeric(input['height'],true)
           floor_height = numeric(input['floor_height'],true)
           setbacks = input.fetch('setbacks').map { |v| numeric(v) }
+          if source[:points].length > Geometry::SIMPLIFY_THRESHOLD
+            messages << source[:name] + '：高分段边界计算采用最多 10 mm 简化容差及同额向内裕量；保留逐边退线变化和原始红线'
+          end
           cells = Geometry.inset(source[:points],setbacks)
           outlines = Geometry.boundaries(cells)
           name = input['name'].to_s.strip[0,100]
