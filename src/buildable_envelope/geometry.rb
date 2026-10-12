@@ -58,6 +58,10 @@ module MattWu
         end
         n.times do |i|
           raise ArgumentError, '存在零长度边' if distance(poly[i],poly[(i+1)%n]) <= EPS
+          a,b,c = poly[(i-1)%n],poly[i],poly[(i+1)%n]
+          if cross(a,b,c).abs <= EPS && (b[0]-a[0])*(c[0]-b[0])+(b[1]-a[1])*(c[1]-b[1]) < 0
+            raise ArgumentError, '相邻边折返或重叠'
+          end
           ((i+1)...n).each do |j|
             next if j == i+1 || (i == 0 && j == n-1)
             bi,bj = bounds[i],bounds[j]
@@ -166,7 +170,7 @@ module MattWu
 
       def segment_distance(p,a,b)
         dx,dy = b[0]-a[0],b[1]-a[1]
-        length2 = dx*dx+dy*dy
+        length2 = (dx*dx+dy*dy).to_f
         return distance(p,a) if length2 <= EPS*EPS
         t = [[((p[0]-a[0])*dx+(p[1]-a[1])*dy)/length2,0.0].max,1.0].min
         Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)
@@ -211,11 +215,11 @@ module MattWu
         [simplified,distances,CURVE_TOLERANCE]
       end
 
-      def inset(poly, setbacks)
+      def inset(poly, setbacks, approximate: false)
         validate(poly)
         raise ArgumentError, '退线数量必须与边数一致' unless setbacks.length == poly.length
         raise ArgumentError, '退线须为非负有限数值' unless setbacks.all? { |v| v.is_a?(Numeric) && v.finite? && v >= 0 }
-        poly,setbacks,_margin = prepare_boundary(poly,setbacks)
+        poly,setbacks,_margin = prepare_boundary(poly,setbacks) if approximate
         cells = triangulate(poly)
         cutters = []
         poly.each_index do |i|

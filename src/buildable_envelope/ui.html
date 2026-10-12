@@ -4,18 +4,26 @@
 *{box-sizing:border-box}body{margin:0;font:14px "Microsoft YaHei",sans-serif;background:#f4f6f8;color:#21343b}
 header{background:#143944;color:white;padding:22px 28px}h1{font-size:23px;margin:0 0 8px}header p{margin:0;color:#bcd3d9}
 main{padding:20px 28px}button{border:0;border-radius:6px;background:#166b7c;color:white;padding:11px 16px;cursor:pointer}
-button.secondary{background:#e0eaed;color:#214b57}input,select{border:1px solid #cbd6da;border-radius:5px;padding:8px;background:white;width:100%}
-label{display:block;font-size:12px;color:#52696f;margin-bottom:5px}.toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap}.field{width:130px}
+button:disabled{opacity:.5;cursor:default}button.secondary{background:#e0eaed;color:#214b57}input,select{border:1px solid #cbd6da;border-radius:5px;padding:8px;background:white;width:100%}
+textarea{width:100%;min-height:92px;resize:vertical;border:1px solid #cbd6da;border-radius:5px;padding:10px;font:14px 'Microsoft YaHei',sans-serif}.cad-state{padding:11px 14px;border-radius:6px;background:#edf2f5;margin:10px 0;font-size:13px;line-height:1.7}.cad-state[data-state=loaded],.cad-state[data-state=focused]{background:#e1f2e9;color:#195337}.cad-state[data-state=failed],.cad-state[data-state=incompatible]{background:#fce9e8;color:#9b2724}.cad-state[data-state=importing],.cad-state[data-state=choosing],.cad-state[data-state=waiting],.cad-state[data-state=warning]{background:#fff3db;color:#79531a}.import-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.import-row select{width:auto;max-width:280px}.condition-preview input[type=number]{min-width:80px}.condition-preview td{font-size:12px}.condition-preview select{max-width:160px}label{display:block;font-size:12px;color:#52696f;margin-bottom:5px}.toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap}.field{width:130px}
 .card{background:white;border:1px solid #dbe3e7;border-radius:10px;padding:20px;margin:16px 0}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}.parameters{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .name{grid-column:1/-1}svg{width:100%;height:310px;background:#f4f8f9;border-radius:6px}table{width:100%;border-collapse:collapse;margin-top:12px}
 th,td{padding:7px;text-align:left;border-bottom:1px solid #e3eaed}th{font-size:12px;color:#52696f}
-.scroll{max-height:240px;overflow:auto}.note{font-size:12px;color:#657b82;line-height:1.8}.bottom{display:flex;gap:15px;align-items:center}
+.group-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.group-tools select{width:auto;max-width:150px}.group-tools button{padding:7px 9px;font-size:12px}input[type=checkbox]{width:auto;margin-right:5px}.selected-row{background:#edf4f6}.range{display:block;font-size:11px;color:#657b82}.scroll{max-height:240px;overflow:auto}.note{font-size:12px;color:#657b82;line-height:1.8}.bottom{display:flex;gap:15px;align-items:center}
 pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8eff2;padding:14px;border-radius:7px;max-height:230px;overflow:auto}
 @media(max-width:700px){.grid{grid-template-columns:1fr}}
 </style></head><body>
-<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.1.3 预览版</p></header>
+<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.2.6 边界识别预览版</p></header>
 <main>
+<div class="card"><div class="import-row"><button id="importCad">导入 CAD 文件…</button><span id="cadInfo">尚未导入 CAD · DWG / DXF</span><button class="secondary" id="focusCad" disabled>定位已导入图纸</button><select id="cadTag" aria-label="CAD 红线图层"><option value="">导入后选择红线图层</option></select><button class="secondary" id="readCad">识别所选红线图层</button></div>
+<div class="cad-state" id="cadStatus" data-state="idle" role="status" aria-live="polite">未导入：选择文件后，此处会显示导入结果、图层数和几何数量。</div>
+<p class="note">CAD 在独立组件中导入，保留原点。请核对导入尺寸和红线图层，再识别地块。</p>
+<label for="conditionsText">粘贴规划条件，自动识别退线、限高和层高</label>
+<textarea id="conditionsText" placeholder="例如：限高36米；道路侧退线8米；邻地侧退线3米；组2退线5米；层高3.6米"></textarea>
+<div class="import-row" style="margin-top:10px"><button class="secondary" id="parseConditions">识别粘贴内容</button><button id="applyConditions" disabled>将勾选结果应用到当前地块</button></div>
+<p class="note" id="conditionsNote">识别后先核对结果；道路侧、邻地侧可对应已标记边段，也可指定组。地块几何从 CAD 读取。</p>
+<div class="condition-preview"><table><thead><tr><th>应用</th><th>识别字段</th><th>米</th><th>应用位置</th><th>原文依据</th></tr></thead><tbody id="conditionsRows"></tbody></table></div></div>
 <div class="toolbar"><button class="secondary" id="reload">重新读取当前选择</button>
 <div class="field"><label>统一退线（米）</label><input id="defaultSetback" type="number" min="0" step="0.1" value="5"></div>
 <div class="field"><label>统一限高（米）</label><input id="defaultHeight" type="number" min="0.001" step="0.1" value="36"></div>
@@ -23,60 +31,190 @@ pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8ef
 <button id="apply">应用到全部地块</button></div>
 <div class="card"><label>选择地块查看和修改（生成时处理全部列表地块）</label><select id="selector"></select>
 <div class="grid" style="margin-top:18px"><div><svg id="preview" viewBox="0 0 440 310" aria-label="边界与边号预览"></svg>
-<p class="note">预览显示原红线，顶部为模型 +Y；超过 100 条边时抽样显示边号，表格保留全部边。超过 200 边的计算边界采用 10 mm 简化容差及同额向内裕量；原红线不改变。</p></div>
+<p class="note" id="boundaryInfo"></p><p class="note">预览按边段组着色并显示组号，顶部为模型 +Y。连续直线和顺滑曲线自动归为一组；每组输入一次退距，应用到组内全部原边。点击预览或勾选表格可选组。白色紫边为内孔。</p></div>
 <div><div class="parameters"><div class="name"><label>地块名称</label><input id="name"></div>
 <div><label>限高（米，自红线标高向上）</label><input id="height" type="number" min="0.001" step="0.1"></div>
 <div><label>层高（米，完整层数向下取整）</label><input id="floor_height" type="number" min="0.001" step="0.1"></div></div>
-<div class="scroll"><table><thead><tr><th>红线边号</th><th>退线（米）</th><th>边长（米）</th></tr></thead><tbody id="edges"></tbody></table></div></div></div></div>
-<p class="note">采用到每条原始边段的最短距离退线，转角采用 64 边外包圆近似，结果偏保守。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
+<div class="group-tools"><select id="viewMode" aria-label="退线编辑方式"><option value="groups">按边段组输入</option><option value="edges">逐边编辑</option></select>
+<select id="groupStrength" aria-label="自动分组强度"><option value="15">较细分组</option><option value="25" selected>标准分组</option><option value="45">更多合并</option></select>
+<button class="secondary" id="regroup">重新自动分组</button><button class="secondary" id="mergeGroups">合并所选相邻组</button><button class="secondary" id="splitGroups">所选拆为单边</button></div>
+<p class="note" id="groupInfo"></p>
+<div class="scroll"><table><thead><tr><th>边段 / 原边范围</th><th>退线（米）</th><th>边长（米）</th></tr></thead><tbody id="edges"></tbody></table></div></div></div></div>
+<p class="note">统一退距采用完整原红线的尖角平行偏移，自动处理凹角和分裂区域；各组不同退距按每条原边的最短距离约束生成，交界采用圆弧过渡（圆弧近似增加 0.1 mm 退距补偿）。道路侧、邻地侧标记由你选择，退距按项目要求填写。结果均检查原边段退距及越界；带内孔地块暂不生成。估算建筑面积按满铺楼层计算，未加入容积率、停车、核心筒、消防或日照等约束。输入红线保持原样；每次生成新增独立组，可一次撤销。</p>
 <div class="bottom"><button id="generate">批量生成可建体量</button><span id="count">等待读取…</span></div>
 <pre id="status" role="status">请选择水平地块面或闭合线。CAD 请先导入 SketchUp。</pre>
-</main><script>
+</main><script src="vendor/clipper.js"></script><script src="offset_engine.js"></script><script src="setback_groups.js"></script><script src="conditions_parser.js"></script><script>
 'use strict';
-let parcels=[],active=0,busy=false;
+let parcels=[],active=0,busy=false,parsedConditions=null,conditionRows=[],cadPending=false,cadAvailable=false,cadHasImport=false,cadTimer=null;
 const el=id=>document.getElementById(id);
 function report(message){el('status').textContent=message;busy=false;el('generate').disabled=false;}
 function receive(data){
+ cadAvailable=data.cad_supported===true&&data.backend_version==='0.2.6';
+ el('importCad').disabled=!cadAvailable||cadPending;
+ el('readCad').disabled=cadPending||!cadHasImport;
+ el('focusCad').disabled=cadPending||!cadHasImport;
+ if(!cadAvailable)cadStatus({state:'incompatible',message:'界面与 Ruby 后端版本不一致，请完全退出并重新启动 SketchUp，再打开插件。'});
+ clearConditionsPreview();
  parcels=data.parcels;active=0;el('selector').replaceChildren();
- parcels.forEach((p,i)=>{const option=document.createElement('option');option.value=i;option.textContent=p.name;el('selector').appendChild(option);});
+ parcels.forEach((p,i)=>{p.edgeLabels=p.points.map(()=>'未标注');p.groups=SetbackGroups.auto(p.points,p.setbacks,25,p.edgeLabels);p.viewMode='groups';p.selectedGroups=new Set();const option=document.createElement('option');option.value=i;option.textContent=p.name;el('selector').appendChild(option);});
  el('count').textContent=parcels.length+' 个有效地块';
- report(data.errors.length?'输入检查：\n'+data.errors.join('\n'):'读取完成。可设置逐边退线，再批量生成。');render();
+ report(data.errors.length?'输入检查：\n'+data.errors.join('\n'):'读取完成。已自动归并退线输入项；请核对边段分组，再设置退距。');render();
 }
 function svgNode(name,attrs,text){const n=document.createElementNS('http://www.w3.org/2000/svg',name);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!==undefined)n.textContent=text;el('preview').appendChild(n);return n;}
+function clearConditionsPreview(){
+ parsedConditions=null;conditionRows=[];el('conditionsRows').replaceChildren();el('applyConditions').disabled=true;
+ el('conditionsNote').textContent='请粘贴并识别条件，核对后应用到当前地块。';
+}
+function cadStatus(info){
+ const state=info.state;
+ cadPending=['choosing','importing','waiting'].includes(state);
+ if(!cadPending&&cadTimer!==null){clearTimeout(cadTimer);cadTimer=null;}
+ el('cadStatus').setAttribute('data-state',state);
+ el('cadStatus').textContent=(info.name?info.name+' · ':'')+info.message;
+ el('importCad').disabled=cadPending||!cadAvailable;
+ el('readCad').disabled=cadPending||!cadHasImport;
+ el('focusCad').disabled=cadPending||!cadHasImport;
+}
+function cadLoaded(info){
+ cadHasImport=true;
+ const counts=info.counts||{},tags=info.tags||[];
+ const size=Number.isFinite(info.width)&&Number.isFinite(info.height)?' · '+info.width.toFixed(2)+' × '+info.height.toFixed(2)+' 米':'';
+ el('cadInfo').textContent='已导入：'+info.name+size+' · '+tags.length+' 个图层 · '+(counts.edges||0)+' 条边线 · '+(counts.faces||0)+' 个面';
+ el('cadTag').replaceChildren();const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent=tags.length?'请选择红线图层':'未获取图层，请查看模型';el('cadTag').appendChild(placeholder);
+ tags.forEach(tag=>{const option=document.createElement('option');option.value=tag;option.textContent=tag;el('cadTag').appendChild(option);});
+ let detail='已成功导入独立组件 · '+tags.length+' 个图层 · '+(counts.edges||0)+' 条边线 · '+(counts.faces||0)+' 个面'+(info.focused?' · 已定位图纸':'');
+ if(info.truncated)detail+='；大型图纸，统计为部分结果';
+ if(info.warning)detail+='；'+info.warning;
+ cadStatus({state:'loaded',name:info.name,message:detail+'。请核对尺寸并选择红线图层。'});
+}
+el('importCad').addEventListener('click',()=>{
+ if(busy||cadPending)return;
+ try{
+  if(!cadAvailable||typeof sketchup.import_cad!=='function')throw Error('CAD 导入入口未加载，请完全退出并重新启动 SketchUp。');
+  cadStatus({state:'choosing',message:'正在打开文件选择框…'});
+  cadTimer=setTimeout(()=>{if(cadPending)cadStatus({state:'waiting',message:'仍在等待导入结果。若文件选择框已打开，请先选择或取消；若没有弹窗，请重启 SketchUp。'});},60000);
+  sketchup.import_cad();
+ }catch(error){cadStatus({state:'failed',message:error.message});}
+});
+el('readCad').addEventListener('click',()=>{if(busy||cadPending)return;if(!el('cadTag').value){report('请选择红线图层。');return;}sketchup.read_cad(el('cadTag').value);});
+el('focusCad').addEventListener('click',()=>{if(busy||cadPending)return;try{if(typeof sketchup.focus_cad!=='function')throw Error('定位入口未加载，请重启 SketchUp');sketchup.focus_cad();}catch(error){cadStatus({state:'failed',message:error.message});}});
+el('conditionsText').addEventListener('input',clearConditionsPreview);
+function recognizeConditions(){
+ if(busy)return;clearConditionsPreview();
+ try{
+  parsedConditions=ConditionsParser.parse(el('conditionsText').value);const p=parcels[active];
+  parsedConditions.actions.forEach(action=>{
+   const row=document.createElement('tr'),choose=document.createElement('td'),field=document.createElement('td'),value=document.createElement('td'),target=document.createElement('td'),evidence=document.createElement('td');
+   const check=document.createElement('input');check.type='checkbox';check.checked=action.valid;check.disabled=!action.valid;choose.appendChild(check);
+   field.textContent=action.kind==='height'?'限高':action.kind==='floor_height'?'层高':'退线';value.textContent=String(action.value);
+   const select=document.createElement('select');
+   if(action.kind==='setback'){
+    const options=[['unmapped','请选择对应边段'],['all','全部原边'],['road','已标记道路侧'],['neighbor','已标记邻地侧'],['selected','当前勾选的边段']];
+    if(p)p.groups.forEach((g,i)=>options.push(['group:'+i,'组 '+(i+1)]));
+    if(action.target==='edge')options.push(['edge:'+action.index,'原边 '+(action.index+1)]);
+    options.forEach(([v,text])=>{const option=document.createElement('option');option.value=v;option.textContent=text;select.appendChild(option);});
+    select.value=action.target==='group'||action.target==='edge'?action.target+':'+action.index:action.target;
+    target.appendChild(select);
+   }else target.textContent='当前地块';
+   evidence.textContent=action.evidence;row.append(choose,field,value,target,evidence);el('conditionsRows').appendChild(row);
+   conditionRows.push({action,check,select});
+  });
+  el('conditionsNote').textContent=(parsedConditions.warnings.length?parsedConditions.warnings.join('；'):'识别完成，请核对字段、单位和对应边段。')+(!p?' 请先导入 CAD 并识别红线。':'');
+  el('applyConditions').disabled=!p||!parsedConditions.actions.some(a=>a.valid);
+ }catch(error){report(error.message);}
+}
+el('parseConditions').addEventListener('click',recognizeConditions);
+el('conditionsText').addEventListener('paste',()=>setTimeout(recognizeConditions,0));
+el('applyConditions').addEventListener('click',()=>{
+ if(busy||!parsedConditions)return;
+ try{
+  const p=parcels[active],actions=conditionRows.filter(r=>r.check.checked&&!r.check.disabled).map(r=>{
+   const action=Object.assign({},r.action,{sourceTarget:r.action.target});
+   if(action.kind==='setback'){
+    const parts=r.select.value.split(':');action.target=parts[0];action.index=parts.length>1?Number(parts[1]):null;
+   }
+   return action;
+  });
+  const result=ConditionsParser.plan(p,actions);
+  Object.assign(p,result);render();report('已将勾选条件应用到当前地块；请核对预览和退距，再生成。');
+ }catch(error){report(error.message);}
+});
+function visibleGroups(p){return p.viewMode==='edges'?p.points.map((_,i)=>({edges:[i]})):p.groups;}
+function color(i){return 'hsl('+((i*137.508)%360)+',60%,35%)';}
+function toggleGroup(index){const p=parcels[active];if(p.selectedGroups.has(index))p.selectedGroups.delete(index);else p.selectedGroups.add(index);render();}
 function render(){
- const p=parcels[active];if(!p)return;
- ['name','height','floor_height'].forEach(k=>el(k).value=p[k]);el('edges').replaceChildren();el('preview').replaceChildren();
- const xs=p.points.map(v=>v[0]),ys=p.points.map(v=>v[1]);
+ const p=parcels[active];if(!p){el('edges').replaceChildren();el('preview').replaceChildren();el('boundaryInfo').textContent='请导入 CAD 或读取当前选择。';return;}
+ ['name','height','floor_height'].forEach(k=>el(k).value=p[k]);el('viewMode').value=p.viewMode;
+ el('edges').replaceChildren();el('preview').replaceChildren();
+ const holes=p.holes||[],all=p.points.concat(...holes),groups=visibleGroups(p);
+ el('boundaryInfo').textContent='原始外环 '+p.points.length+' 条边 · 退线输入 '+groups.length+' 项 · 内孔 '+holes.length+' 个 · 用地净面积 '+Number(p.area).toFixed(2)+' ㎡'+(holes.length?'；当前生成时跳过带孔地块。':'');
+ el('groupInfo').textContent='已选 '+p.selectedGroups.size+' 项。分组保留原始坐标和各边编号；“多值”表示原边退距不同，填写后统一该组。';
+ const xs=all.map(v=>v[0]),ys=all.map(v=>v[1]);
  const xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
  const s=Math.min(340/Math.max(xmax-xmin,0.001),210/Math.max(ymax-ymin,0.001));
  const xy=v=>[220+(v[0]-(xmin+xmax)/2)*s,155-(v[1]-(ymin+ymax)/2)*s];
- svgNode('polygon',{points:p.points.map(v=>xy(v).join(',')).join(' '),fill:'#d9edef',stroke:'#166b7c','stroke-width':2});
- const labelStep=Math.max(1,Math.ceil(p.points.length/100));
- p.points.forEach((a,i)=>{
-   const b=p.points[(i+1)%p.points.length],m=xy([(a[0]+b[0])/2,(a[1]+b[1])/2]);
-   if(i%labelStep===0){
-    svgNode('circle',{cx:m[0],cy:m[1],r:12,fill:'#143944'});
-    svgNode('text',{x:m[0],y:m[1]+4,fill:'white','font-size':11,'text-anchor':'middle'},i+1);
+ svgNode('polygon',{points:p.points.map(v=>xy(v).join(',')).join(' '),fill:'#d9edef',stroke:'#166b7c','stroke-width':1});
+ holes.forEach(ring=>svgNode('polygon',{points:ring.map(v=>xy(v).join(',')).join(' '),fill:'#f4f8f9',stroke:'#9b4fa0','stroke-width':2}));
+ const labelStep=Math.max(1,Math.ceil(groups.length/30));
+ groups.forEach((group,index)=>{
+   const selected=p.selectedGroups.has(index),ids=group.edges;
+   const lengths=ids.map(i=>{const a=p.points[i],b=p.points[(i+1)%p.points.length];return Math.hypot(b[0]-a[0],b[1]-a[1]);});
+   const total=lengths.reduce((a,b)=>a+b,0),line=ids.map(i=>p.points[i]).concat([p.points[(ids[ids.length-1]+1)%p.points.length]]);
+   const stroke=color(index),path=svgNode('polyline',{points:line.map(v=>xy(v).join(',')).join(' '),fill:'none',stroke:stroke,'stroke-width':selected?5:2.5,'stroke-linejoin':'round'});
+   path.style.cursor='pointer';path.addEventListener('click',()=>toggleGroup(index));
+   if(index%labelStep===0){
+    let distance=total/2,j=0;while(j<lengths.length-1&&distance>lengths[j]){distance-=lengths[j];j++;}
+    const a=p.points[ids[j]],b=p.points[(ids[j]+1)%p.points.length],t=lengths[j]?distance/lengths[j]:0;
+    const m=xy([a[0]+t*(b[0]-a[0]),a[1]+t*(b[1]-a[1])]);
+    const circle=svgNode('circle',{cx:m[0],cy:m[1],r:12,fill:stroke});
+    const label=svgNode('text',{x:m[0],y:m[1]+4,fill:'white','font-size':11,'text-anchor':'middle'},p.viewMode==='edges'?ids[0]+1:index+1);
+    [circle,label].forEach(node=>{node.style.cursor='pointer';node.addEventListener('click',()=>toggleGroup(index));});
    }
-   const tr=document.createElement('tr'),number=document.createElement('td'),field=document.createElement('td'),length=document.createElement('td'),input=document.createElement('input');
-   number.textContent='边 '+(i+1);input.type='number';input.min=0;input.step=0.1;input.value=p.setbacks[i];input.setAttribute('aria-label','边 '+(i+1)+' 退线');
-   input.addEventListener('input',()=>p.setbacks[i]=input.value);field.appendChild(input);length.textContent=Math.hypot(b[0]-a[0],b[1]-a[1]).toFixed(2);
-   tr.append(number,field,length);el('edges').appendChild(tr);
+   const tr=document.createElement('tr'),number=document.createElement('td'),field=document.createElement('td'),length=document.createElement('td'),input=document.createElement('input'),check=document.createElement('input'),title=document.createElement('span'),range=document.createElement('span');
+   if(selected)tr.className='selected-row';
+   check.type='checkbox';check.checked=selected;check.setAttribute('aria-label','选择边段 '+(index+1));check.addEventListener('change',()=>toggleGroup(index));
+   title.textContent=p.viewMode==='edges'?'边 '+(ids[0]+1):'组 '+(index+1);title.style.color=stroke;
+   range.className='range';range.textContent=ids.length===1?'原边 '+(ids[0]+1):'原边 '+(ids[0]+1)+' → '+(ids[ids.length-1]+1)+' · '+ids.length+' 条';range.title=ids.map(i=>i+1).join(', ');
+   number.append(check,title,range);
+   const usage=document.createElement('select'),firstLabel=p.edgeLabels[ids[0]],mixedLabel=ids.some(i=>p.edgeLabels[i]!==firstLabel);
+   ['未标注','道路侧','邻地侧','其他','多类型'].forEach(text=>{const option=document.createElement('option');option.value=text;option.textContent=text;usage.appendChild(option);});
+   usage.value=mixedLabel?'多类型':firstLabel;usage.setAttribute('aria-label',title.textContent+' 边界用途');
+   usage.addEventListener('change',()=>{if(usage.value!=='多类型')ids.forEach(i=>p.edgeLabels[i]=usage.value);});
+   number.appendChild(usage);
+   input.type='number';input.min=0;input.step=0.1;const value=SetbackGroups.value(group,p.setbacks);input.value=value===null?'':value;input.placeholder=value===null?'多值':'';input.setAttribute('aria-label',title.textContent+' 退线');
+   input.addEventListener('input',()=>SetbackGroups.assign(group,p.setbacks,input.value));
+   field.appendChild(input);length.textContent=total.toFixed(2);tr.append(number,field,length);el('edges').appendChild(tr);
  });
 }
+el('viewMode').addEventListener('change',()=>{const p=parcels[active];if(!p||busy)return;p.viewMode=el('viewMode').value;p.selectedGroups.clear();render();});
+el('regroup').addEventListener('click',()=>{clearConditionsPreview();const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.auto(p.points,p.setbacks,Number(el('groupStrength').value),p.edgeLabels);p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
+el('mergeGroups').addEventListener('click',()=>{clearConditionsPreview();const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.merge(visibleGroups(p),[...p.selectedGroups],p.points.length);p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
+el('splitGroups').addEventListener('click',()=>{clearConditionsPreview();const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.split(visibleGroups(p),[...p.selectedGroups],p.points.length);p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
 ['name','height','floor_height'].forEach(k=>el(k).addEventListener('input',()=>{if(parcels[active])parcels[active][k]=el(k).value;}));
-el('selector').addEventListener('change',()=>{active=Number(el('selector').value);render();});
-el('reload').addEventListener('click',()=>{if(!busy)sketchup.reload();});
+el('selector').addEventListener('change',()=>{active=Number(el('selector').value);clearConditionsPreview();render();});
+el('reload').addEventListener('click',()=>{if(!busy&&!cadPending)sketchup.reload();});
 el('apply').addEventListener('click',()=>{
  const d=Number(el('defaultSetback').value),h=Number(el('defaultHeight').value),f=Number(el('defaultFloor').value);
  if(!Number.isFinite(d)||!Number.isFinite(h)||!Number.isFinite(f)||d<0||h<=0||f<=0){report('请输入有效退线、限高和层高。');return;}
  parcels.forEach(p=>{p.setbacks=p.setbacks.map(()=>d);p.height=h;p.floor_height=f;});render();
 });
 el('generate').addEventListener('click',()=>{
- if(busy||!parcels.length)return;
+ if(busy||cadPending||!parcels.length)return;
  if(parcels.some(p=>String(p.height).trim()===''||String(p.floor_height).trim()===''||p.setbacks.some(v=>String(v).trim()===''))){report('参数不能为空。');return;}
  busy=true;el('generate').disabled=true;el('status').textContent='正在计算与生成，请稍候…';
- sketchup.generate(JSON.stringify(parcels.map(p=>({id:p.id,name:p.name,height:p.height,floor_height:p.floor_height,setbacks:p.setbacks}))));
+ // Yield to the browser so the status is painted before local geometry work.
+ setTimeout(()=>{
+  const inputs=parcels.map(p=>{
+   const input={id:p.id,name:p.name,height:p.height,floor_height:p.floor_height,setbacks:p.setbacks,edge_labels:p.edgeLabels};
+   const distances=p.setbacks.map(Number);
+   if(!(p.holes||[]).length){
+    try{input.offset_result=BuildableOffset.solve(p.points,distances);}
+    catch(error){input.offset_error=error.message;}
+   }
+   return input;
+  });
+  sketchup.generate(JSON.stringify(inputs));
+ },0);
 });
 document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
 </script></body></html>
