@@ -41,6 +41,7 @@ class CadImportTest < Minitest::Test
       assert_equal true,definitions.received[1][:preserve_origin]
       assert_equal false,definitions.received[1][:merge_coplanar_faces]
       refute definitions.received[1].key?(:units)
+      assert_equal false,definitions.received[1][:show_summary]
     ensure
       file.close!
     end
@@ -70,5 +71,28 @@ class CadImportTest < Minitest::Test
     assert_raises(RuntimeError){C.place(model,Definition.new([:geometry]),'redline.dwg',:identity)}
     assert_equal [old],model.selection
     assert_equal [:start,:abort],model.events
+  end
+end
+
+class CadFocusTest < Minitest::Test
+  C=MattWu::BuildableEnvelope::CadImport
+  class View
+    attr_reader :zoomed
+    def zoom(instance);@zoomed=instance;end
+  end
+  def test_focus_selects_only_the_imported_instance_and_zooms_it
+    selection=CadImportTest::Selection.new;selection.add(:old)
+    view=View.new
+    model=Struct.new(:selection,:active_view).new(selection,view)
+    instance=CadImportTest::Instance.new
+    assert C.focus(model,instance)
+    assert_equal [instance],selection
+    assert_equal instance,view.zoomed
+  end
+  def test_invalid_instance_does_not_change_selection
+    selection=CadImportTest::Selection.new;selection.add(:old)
+    instance=Object.new;def instance.valid?;false;end
+    assert_raises(ArgumentError){C.focus(Struct.new(:selection,:active_view).new(selection,View.new),instance)}
+    assert_equal [:old],selection
   end
 end

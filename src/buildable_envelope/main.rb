@@ -144,23 +144,53 @@ module MattWu
         end
       end
       @dialog.add_action_callback('import_cad') do |_context|
+        imported=false
+        name=nil
         begin
           raise ArgumentError, '请退出组或组件编辑后导入' if Sketchup.active_model.active_path
+          cad_status(state: 'choosing',message: '请选择 DWG 或 DXF 文件')
           path=UI.openpanel('选择 CAD 红线文件',nil,'CAD 文件|*.dwg;*.dxf||')
-          next unless path
+          unless path
+            cad_status(state: 'cancelled',message: '已取消选择，原模型和上次导入保持原样')
+            next
+          end
+          name=File.basename(path)
+          cad_status(state: 'importing',name: name,message: '正在读取 CAD，请稍候…')
           target_model=Sketchup.active_model
           definition=CadImport.load_definition(target_model,path)
-          @cad_instance=CadImport.place(target_model,definition,File.basename(path),Geom::Transformation.new)
-          @model=target_model
+          instance=CadImport.place(target_model,definition,name,Geom::Transformation.new)
+          @cad_instance=instance;@model=target_model;imported=true
           @cad_mode=false;@parcels=[];@errors=[];@signature=[]
           send_data
-          size=@cad_instance.bounds
-          info={name: File.basename(path),tags: CadImport.tags(definition.entities),
-            width: size.width.to_f*INCH_TO_M,height: size.height.to_f*INCH_TO_M}
+          info={name: name}
+          begin
+            info.merge!(CadImport.summary(instance))
+          rescue => detail_error
+            info[:warning]='图纸已导入，但几何统计未完成：'+detail_error.message
+            info[:tags]=[]
+          end
+          begin
+            CadImport.focus(@model,instance)
+            info[:focused]=true
+          rescue => focus_error
+            info[:warning]=[info[:warning],'自动定位未完成：'+focus_error.message].compact.join('；')
+          end
           @dialog.execute_script('cadLoaded('+JSON.generate(info)+')')
-          report('CAD 已导入独立组件。请核对尺寸，选择红线图层后识别。CAD 单位由 SketchUp CAD 导入器处理，请用已知边长核对。')
+          report('CAD 已导入：'+name+'。请核对图纸尺寸，选择红线图层后识别。')
         rescue => error
-          report('CAD 导入失败：'+error.message)
+          cad_status(state: imported ? 'warning' : 'failed',name: name,
+            message: (imported ? 'CAD 已导入，后续显示遇到问题：' : 'CAD 导入失败：')+error.message)
+          report(error.message)
+        end
+      end
+      @dialog.add_action_callback('focus_cad') do |_context|
+        begin
+          raise ArgumentError, '请切回 CAD 导入所在模型' unless Sketchup.active_model == @model
+          raise ArgumentError, '请退出组或组件编辑后定位图纸' if @model.active_path
+          CadImport.focus(@model,@cad_instance)
+          cad_status(state: 'focused',message: '已选中并缩放到导入图纸')
+        rescue => error
+          cad_status(state: 'failed',message: error.message)
         end
       end
       @dialog.add_action_callback('read_cad') do |_context,tag|
@@ -206,8 +236,12 @@ module MattWu
       [results,errors]
     end
 
+    def cad_status(info)
+      @dialog.execute_script('cadStatus('+JSON.generate(info)+')') if @dialog
+    end
+
     def send_data
-      @dialog.execute_script('receive(' + JSON.generate(parcels: @parcels, errors: @errors) + ')')
+      @dialog.execute_script('receive(' + JSON.generate(parcels: @parcels, errors: @errors,backend_version: '0.2.5',cad_supported: true) + ')')
     end
 
     def report(message)

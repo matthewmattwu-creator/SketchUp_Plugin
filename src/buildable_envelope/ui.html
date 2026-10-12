@@ -4,8 +4,8 @@
 *{box-sizing:border-box}body{margin:0;font:14px "Microsoft YaHei",sans-serif;background:#f4f6f8;color:#21343b}
 header{background:#143944;color:white;padding:22px 28px}h1{font-size:23px;margin:0 0 8px}header p{margin:0;color:#bcd3d9}
 main{padding:20px 28px}button{border:0;border-radius:6px;background:#166b7c;color:white;padding:11px 16px;cursor:pointer}
-button.secondary{background:#e0eaed;color:#214b57}input,select{border:1px solid #cbd6da;border-radius:5px;padding:8px;background:white;width:100%}
-textarea{width:100%;min-height:92px;resize:vertical;border:1px solid #cbd6da;border-radius:5px;padding:10px;font:14px 'Microsoft YaHei',sans-serif}.import-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.import-row select{width:auto;max-width:280px}.condition-preview input[type=number]{min-width:80px}.condition-preview td{font-size:12px}.condition-preview select{max-width:160px}label{display:block;font-size:12px;color:#52696f;margin-bottom:5px}.toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap}.field{width:130px}
+button:disabled{opacity:.5;cursor:default}button.secondary{background:#e0eaed;color:#214b57}input,select{border:1px solid #cbd6da;border-radius:5px;padding:8px;background:white;width:100%}
+textarea{width:100%;min-height:92px;resize:vertical;border:1px solid #cbd6da;border-radius:5px;padding:10px;font:14px 'Microsoft YaHei',sans-serif}.cad-state{padding:11px 14px;border-radius:6px;background:#edf2f5;margin:10px 0;font-size:13px;line-height:1.7}.cad-state[data-state=loaded],.cad-state[data-state=focused]{background:#e1f2e9;color:#195337}.cad-state[data-state=failed],.cad-state[data-state=incompatible]{background:#fce9e8;color:#9b2724}.cad-state[data-state=importing],.cad-state[data-state=choosing],.cad-state[data-state=waiting],.cad-state[data-state=warning]{background:#fff3db;color:#79531a}.import-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.import-row select{width:auto;max-width:280px}.condition-preview input[type=number]{min-width:80px}.condition-preview td{font-size:12px}.condition-preview select{max-width:160px}label{display:block;font-size:12px;color:#52696f;margin-bottom:5px}.toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap}.field{width:130px}
 .card{background:white;border:1px solid #dbe3e7;border-radius:10px;padding:20px;margin:16px 0}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}.parameters{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .name{grid-column:1/-1}svg{width:100%;height:310px;background:#f4f8f9;border-radius:6px}table{width:100%;border-collapse:collapse;margin-top:12px}
@@ -14,9 +14,10 @@ th,td{padding:7px;text-align:left;border-bottom:1px solid #e3eaed}th{font-size:1
 pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8eff2;padding:14px;border-radius:7px;max-height:230px;overflow:auto}
 @media(max-width:700px){.grid{grid-template-columns:1fr}}
 </style></head><body>
-<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.2.4 边界识别预览版</p></header>
+<header><h1>可建体量快速生成</h1><p>逐边退线 / 限高包络 / 多地块批量生成 · 0.2.5 边界识别预览版</p></header>
 <main>
-<div class="card"><div class="import-row"><button id="importCad">导入 CAD 文件…</button><span id="cadInfo">支持 DWG / DXF</span><select id="cadTag" aria-label="CAD 红线图层"><option value="">导入后选择红线图层</option></select><button class="secondary" id="readCad">识别所选红线图层</button></div>
+<div class="card"><div class="import-row"><button id="importCad">导入 CAD 文件…</button><span id="cadInfo">尚未导入 CAD · DWG / DXF</span><button class="secondary" id="focusCad" disabled>定位已导入图纸</button><select id="cadTag" aria-label="CAD 红线图层"><option value="">导入后选择红线图层</option></select><button class="secondary" id="readCad">识别所选红线图层</button></div>
+<div class="cad-state" id="cadStatus" data-state="idle" role="status" aria-live="polite">未导入：选择文件后，此处会显示导入结果、图层数和几何数量。</div>
 <p class="note">CAD 在独立组件中导入，保留原点。请核对导入尺寸和红线图层，再识别地块。</p>
 <label for="conditionsText">粘贴规划条件，自动识别退线、限高和层高</label>
 <textarea id="conditionsText" placeholder="例如：限高36米；道路侧退线8米；邻地侧退线3米；组2退线5米；层高3.6米"></textarea>
@@ -44,10 +45,15 @@ pre{white-space:pre-wrap;font:13px "Microsoft YaHei",sans-serif;background:#e8ef
 <pre id="status" role="status">请选择水平地块面或闭合线。CAD 请先导入 SketchUp。</pre>
 </main><script src="vendor/clipper.js"></script><script src="offset_engine.js"></script><script src="setback_groups.js"></script><script src="conditions_parser.js"></script><script>
 'use strict';
-let parcels=[],active=0,busy=false,parsedConditions=null,conditionRows=[];
+let parcels=[],active=0,busy=false,parsedConditions=null,conditionRows=[],cadPending=false,cadAvailable=false,cadHasImport=false,cadTimer=null;
 const el=id=>document.getElementById(id);
 function report(message){el('status').textContent=message;busy=false;el('generate').disabled=false;}
 function receive(data){
+ cadAvailable=data.cad_supported===true&&data.backend_version==='0.2.5';
+ el('importCad').disabled=!cadAvailable||cadPending;
+ el('readCad').disabled=cadPending||!cadHasImport;
+ el('focusCad').disabled=cadPending||!cadHasImport;
+ if(!cadAvailable)cadStatus({state:'incompatible',message:'界面与 Ruby 后端版本不一致，请完全退出并重新启动 SketchUp，再打开插件。'});
  clearConditionsPreview();
  parcels=data.parcels;active=0;el('selector').replaceChildren();
  parcels.forEach((p,i)=>{p.edgeLabels=p.points.map(()=>'未标注');p.groups=SetbackGroups.auto(p.points,p.setbacks,25,p.edgeLabels);p.viewMode='groups';p.selectedGroups=new Set();const option=document.createElement('option');option.value=i;option.textContent=p.name;el('selector').appendChild(option);});
@@ -59,13 +65,39 @@ function clearConditionsPreview(){
  parsedConditions=null;conditionRows=[];el('conditionsRows').replaceChildren();el('applyConditions').disabled=true;
  el('conditionsNote').textContent='请粘贴并识别条件，核对后应用到当前地块。';
 }
-function cadLoaded(info){
- el('cadInfo').textContent=info.name+' · 包围框 '+Number(info.width).toFixed(2)+' × '+Number(info.height).toFixed(2)+' 米';
- el('cadTag').replaceChildren();const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent='请选择红线图层';el('cadTag').appendChild(placeholder);
- info.tags.forEach(tag=>{const option=document.createElement('option');option.value=tag;option.textContent=tag;el('cadTag').appendChild(option);});
+function cadStatus(info){
+ const state=info.state;
+ cadPending=['choosing','importing','waiting'].includes(state);
+ if(!cadPending&&cadTimer!==null){clearTimeout(cadTimer);cadTimer=null;}
+ el('cadStatus').setAttribute('data-state',state);
+ el('cadStatus').textContent=(info.name?info.name+' · ':'')+info.message;
+ el('importCad').disabled=cadPending||!cadAvailable;
+ el('readCad').disabled=cadPending||!cadHasImport;
+ el('focusCad').disabled=cadPending||!cadHasImport;
 }
-el('importCad').addEventListener('click',()=>{if(!busy)sketchup.import_cad();});
-el('readCad').addEventListener('click',()=>{if(busy)return;if(!el('cadTag').value){report('请选择红线图层。');return;}sketchup.read_cad(el('cadTag').value);});
+function cadLoaded(info){
+ cadHasImport=true;
+ const counts=info.counts||{},tags=info.tags||[];
+ const size=Number.isFinite(info.width)&&Number.isFinite(info.height)?' · '+info.width.toFixed(2)+' × '+info.height.toFixed(2)+' 米':'';
+ el('cadInfo').textContent='已导入：'+info.name+size+' · '+tags.length+' 个图层 · '+(counts.edges||0)+' 条边线 · '+(counts.faces||0)+' 个面';
+ el('cadTag').replaceChildren();const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent=tags.length?'请选择红线图层':'未获取图层，请查看模型';el('cadTag').appendChild(placeholder);
+ tags.forEach(tag=>{const option=document.createElement('option');option.value=tag;option.textContent=tag;el('cadTag').appendChild(option);});
+ let detail='已成功导入独立组件 · '+tags.length+' 个图层 · '+(counts.edges||0)+' 条边线 · '+(counts.faces||0)+' 个面'+(info.focused?' · 已定位图纸':'');
+ if(info.truncated)detail+='；大型图纸，统计为部分结果';
+ if(info.warning)detail+='；'+info.warning;
+ cadStatus({state:'loaded',name:info.name,message:detail+'。请核对尺寸并选择红线图层。'});
+}
+el('importCad').addEventListener('click',()=>{
+ if(busy||cadPending)return;
+ try{
+  if(!cadAvailable||typeof sketchup.import_cad!=='function')throw Error('CAD 导入入口未加载，请完全退出并重新启动 SketchUp。');
+  cadStatus({state:'choosing',message:'正在打开文件选择框…'});
+  cadTimer=setTimeout(()=>{if(cadPending)cadStatus({state:'waiting',message:'仍在等待导入结果。若文件选择框已打开，请先选择或取消；若没有弹窗，请重启 SketchUp。'});},60000);
+  sketchup.import_cad();
+ }catch(error){cadStatus({state:'failed',message:error.message});}
+});
+el('readCad').addEventListener('click',()=>{if(busy||cadPending)return;if(!el('cadTag').value){report('请选择红线图层。');return;}sketchup.read_cad(el('cadTag').value);});
+el('focusCad').addEventListener('click',()=>{if(busy||cadPending)return;try{if(typeof sketchup.focus_cad!=='function')throw Error('定位入口未加载，请重启 SketchUp');sketchup.focus_cad();}catch(error){cadStatus({state:'failed',message:error.message});}});
 el('conditionsText').addEventListener('input',clearConditionsPreview);
 function recognizeConditions(){
  if(busy)return;clearConditionsPreview();
@@ -160,14 +192,14 @@ el('mergeGroups').addEventListener('click',()=>{clearConditionsPreview();const p
 el('splitGroups').addEventListener('click',()=>{clearConditionsPreview();const p=parcels[active];if(!p||busy)return;try{p.groups=SetbackGroups.split(visibleGroups(p),[...p.selectedGroups],p.points.length);p.viewMode='groups';p.selectedGroups.clear();render();}catch(error){report(error.message);}});
 ['name','height','floor_height'].forEach(k=>el(k).addEventListener('input',()=>{if(parcels[active])parcels[active][k]=el(k).value;}));
 el('selector').addEventListener('change',()=>{active=Number(el('selector').value);clearConditionsPreview();render();});
-el('reload').addEventListener('click',()=>{if(!busy)sketchup.reload();});
+el('reload').addEventListener('click',()=>{if(!busy&&!cadPending)sketchup.reload();});
 el('apply').addEventListener('click',()=>{
  const d=Number(el('defaultSetback').value),h=Number(el('defaultHeight').value),f=Number(el('defaultFloor').value);
  if(!Number.isFinite(d)||!Number.isFinite(h)||!Number.isFinite(f)||d<0||h<=0||f<=0){report('请输入有效退线、限高和层高。');return;}
  parcels.forEach(p=>{p.setbacks=p.setbacks.map(()=>d);p.height=h;p.floor_height=f;});render();
 });
 el('generate').addEventListener('click',()=>{
- if(busy||!parcels.length)return;
+ if(busy||cadPending||!parcels.length)return;
  if(parcels.some(p=>String(p.height).trim()===''||String(p.floor_height).trim()===''||p.setbacks.some(v=>String(v).trim()===''))){report('参数不能为空。');return;}
  busy=true;el('generate').disabled=true;el('status').textContent='正在计算与生成，请稍候…';
  // Yield to the browser so the status is painted before local geometry work.
