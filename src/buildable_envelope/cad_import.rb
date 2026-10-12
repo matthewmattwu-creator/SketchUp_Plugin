@@ -12,7 +12,7 @@ module MattWu
       def load_definition(model,path)
         validate_path(path)
         definition=model.definitions.import(path,OPTIONS.dup)
-        raise ArgumentError, 'CAD 导入未成功，请检查文件版本及 SketchUp CAD 导入支持' unless definition && definition.valid? && !definition.entities.empty?
+        raise ArgumentError, 'CAD 导入未成功，请检查文件版本及 SketchUp CAD 导入支持' unless definition && definition.valid? && definition.entities.length > 0
         definition
       end
       # Leaves existing root geometry untouched. Native importer settings control

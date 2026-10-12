@@ -8,3 +8,10 @@
 界面与 Ruby 后端交换版本/能力信息。缺少导入回调、安装新版本但未重启或前后端版本不一致时明确要求重启，避免按钮无反应。
 
 该修复的回归检查覆盖阶段状态、取消/失败、等待、旧后端检测、图纸统计与定位。用户真实 DWG 未完成本机原生导入验收，不能以模拟 API 测试替代。真实项目尺寸、标签可见性、原生 CAD 支持仍应核对。项目 CAD 和测试生成文件只保留在本地，不作为公开仓库测试数据。
+
+
+## 0.2.6 实体集合兼容修复
+
+CAD 导入器返回定义后，非空检查误把 Sketchup::Entities 当作 Array 调用了 empty?，导致组件尚未摆放就中断。改用官方 Entities#length > 0。回归对象改为支持 Enumerable / length、没有 empty? 的集合，覆盖正常实体及零实体两种情况。此错误发生在文件解码返回有效定义之后，不能据此判断 DWG 损坏。
+
+依据：[Sketchup::Entities#length](https://ruby.sketchup.com/Sketchup/Entities.html#length-instance_method)。仍需用户真实 DWG 的完整摆放、尺寸及红线验收。

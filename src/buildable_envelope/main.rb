@@ -241,7 +241,7 @@ module MattWu
     end
 
     def send_data
-      @dialog.execute_script('receive(' + JSON.generate(parcels: @parcels, errors: @errors,backend_version: '0.2.5',cad_supported: true) + ')')
+      @dialog.execute_script('receive(' + JSON.generate(parcels: @parcels, errors: @errors,backend_version: '0.2.6',cad_supported: true) + ')')
     end
 
     def report(message)

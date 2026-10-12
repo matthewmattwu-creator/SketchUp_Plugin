@@ -96,3 +96,37 @@ class CadFocusTest < Minitest::Test
     assert_equal [:old],selection
   end
 end
+
+class NativeEntitiesCompatibilityTest < Minitest::Test
+  C=MattWu::BuildableEnvelope::CadImport
+  # Sketchup::Entities is Enumerable, but is not an Array and has no empty?.
+  class NativeEntities
+    include Enumerable
+    def initialize(entries);@entries=entries;end
+    def each(&block);@entries.each(&block);end
+    def length;@entries.length;end
+  end
+  def with_file
+    file=Tempfile.new(['redline','.dwg'])
+    begin
+      yield file.path
+    ensure
+      file.close!
+    end
+  end
+  def test_native_collection_without_empty_imports_successfully
+    entities=NativeEntities.new([:edge])
+    refute entities.respond_to?(:empty?)
+    definition=CadImportTest::Definition.new(entities)
+    model=Struct.new(:definitions).new(CadImportTest::Definitions.new(definition))
+    with_file { |path| assert_same definition,C.load_definition(model,path) }
+  end
+  def test_zero_length_native_collection_has_clear_error
+    definition=CadImportTest::Definition.new(NativeEntities.new([]))
+    model=Struct.new(:definitions).new(CadImportTest::Definitions.new(definition))
+    with_file do |path|
+      error=assert_raises(ArgumentError){C.load_definition(model,path)}
+      assert_match(/CAD 导入未成功/,error.message)
+    end
+  end
+end

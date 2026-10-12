@@ -4,7 +4,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 root = Path(__file__).resolve().parents[1]
 src = root / "src"
-target = root / "dist" / "buildable-envelope-0.2.5.rbz"
+target = root / "dist" / "buildable-envelope-0.2.6.rbz"
 target.parent.mkdir(parents=True, exist_ok=True)
 with ZipFile(target, "w", ZIP_DEFLATED) as archive:
     for path in sorted(src.rglob("*")):
